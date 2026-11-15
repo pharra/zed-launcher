@@ -16,10 +16,15 @@ from .api import system as system_api
 from .api.security import TokenMiddleware
 from .config import load_config
 from .paths import artwork_dir, ensure_dirs, prune_proton_logs, web_root
+from .services import processes
 from .services.runner import RunManager
 
 
-def _pid_alive(pid: int) -> bool:
+def _pid_alive(pid: int, started: str = "") -> bool:
+    """True while the recorded process exists *and* is still the same one."""
+
+    if started:
+        return processes.same_process(pid, started)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

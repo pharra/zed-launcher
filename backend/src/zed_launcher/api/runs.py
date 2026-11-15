@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import secrets
 from contextlib import suppress
 from pathlib import Path
@@ -29,17 +28,18 @@ def _log_tail(log_path: str) -> list[str]:
     return [line.rstrip("\n") for line in lines[-LOG_TAIL:]]
 
 
-def _pid_alive(pid: int | None) -> bool:
-    # Runs recorded before pid tracking existed cannot be verified; treat as gone.
-    if not pid:
-        return False
-    try:
-        os.kill(int(pid), 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def _pid_alive(record: dict) -> bool:
+    """Whether the recorded process is still ours.
+
+    The start time rules out a recycled pid; runs recorded before that column existed
+    fall back to the run marker.
+    """
+
+    pid = record.get("pid")
+    started = str(record.get("pid_started") or "")
+    if started:
+        return processes.same_process(pid, started)
+    return processes.belongs_to_run(pid, str(record["id"]))
 
 
 def detached_snapshot(record: dict) -> dict:
@@ -66,7 +66,7 @@ def active_runs(request: Request) -> list[dict]:
     for record in store.running_runs():
         if record["id"] in known:
             continue
-        if not _pid_alive(record.get("pid")):
+        if not _pid_alive(record):
             # The process is gone and no watcher survived: close it now.
             store.resolve_run(
                 record["id"], "closed", None, store._seconds_since(record.get("started_at"))
@@ -103,13 +103,10 @@ async def stop_run(run_id: str, request: Request) -> dict:
     if record is None or record["status"] not in store.OPEN_RUN_STATUSES:
         raise HTTPException(status_code=409, detail="Run is not active")
 
-    game = store.get_game(str(record["game_id"])) or {}
-    prefix = str(game.get("prefix_path") or "")
-    if not prefix:
-        raise HTTPException(status_code=409, detail="This run was started outside the launcher")
-    killed = processes.terminate(prefix)
+    killed = processes.terminate_run(run_id)
     if killed == 0:
         raise HTTPException(status_code=409, detail="No process left to stop")
+    store.resolve_run(run_id, "stopped", None, store._seconds_since(record.get("started_at")))
     return {"ok": True, "detached": True}
 
 

@@ -514,22 +514,42 @@ def test_tool_arguments_round_trip(client: TestClient, executable: Path) -> None
 def test_active_runs_include_detached_entries(
     client: TestClient, executable: Path, tmp_path: Path
 ) -> None:
+    import subprocess
+    import sys
+
     from zed_launcher import store
+    from zed_launcher.services import processes
 
     game = _create(client, executable, title="Detached")
     log = tmp_path / "detached.log"
     log.write_text("wine: some output\n", encoding="utf-8")
-    run = store.create_run(game["id"], str(log), pid=os.getpid())
-    store.set_run_status(run["id"], "running")
+    run = store.create_run(game["id"], str(log))
+    # A real detached run carries the marker in its environment; that is how the
+    # launcher recognises a process it still owns. /proc/<pid>/environ only shows the
+    # exec-time block, so the marker has to be handed to a real child.
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        env={**os.environ, "ZED_RUN_ID": run["id"]},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        store.set_run_pid(
+            run["id"], child.pid, processes.starttime_of(child.pid)
+        )
+        store.set_run_status(run["id"], "running")
 
-    active = client.get("/api/v1/runs").json()
-    entry = next(item for item in active if item["run_id"] == run["id"])
-    assert entry["detached"] is True
-    assert entry["lines"] == ["wine: some output"]
+        active = client.get("/api/v1/runs").json()
+        entry = next(item for item in active if item["run_id"] == run["id"])
+        assert entry["detached"] is True
+        assert entry["lines"] == ["wine: some output"]
 
-    snapshot = client.get(f"/api/v1/runs/{run['id']}").json()
-    assert snapshot["detached"] is True
-    assert snapshot["game_id"] == game["id"]
+        snapshot = client.get(f"/api/v1/runs/{run['id']}").json()
+        assert snapshot["detached"] is True
+        assert snapshot["game_id"] == game["id"]
+    finally:
+        child.kill()
+        child.wait(timeout=10)
 
 
 def test_prefix_presets_and_cleanup(client: TestClient, wine_prefix: Path) -> None:
@@ -646,3 +666,89 @@ def test_extra_program_delay_is_bounded(client: TestClient, executable: Path, tm
         assert response.json()["extra_programs"][0]["delay"] == 600
     else:
         assert response.status_code == 422
+
+
+def test_stop_kills_children_that_left_the_process_group(
+    client: TestClient, executable: Path, tmp_path: Path
+) -> None:
+    """A game stop must reach wineserver, which runs in its own session."""
+
+    import sys
+    import time
+
+    fake = tmp_path / "fake-umu-run"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess, sys, time\n"
+        "subprocess.Popen(\n"
+        "    [sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+        "    start_new_session=True,\n"
+        "    stdout=subprocess.DEVNULL,\n"
+        "    stderr=subprocess.DEVNULL,\n"
+        ")\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    client.put("/api/v1/settings", json={"umu_run": str(fake)})
+
+    game = _create(client, executable, title="Group")
+    run = client.post(f"/api/v1/games/{game['id']}/launch")
+    assert run.status_code == 200, run.text
+    run_id = run.json()["run_id"]
+
+    from zed_launcher.services import processes
+
+    def family() -> int:
+        return len(processes.run_processes(run_id))
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and family() < 2:
+        time.sleep(0.05)
+    assert family() >= 2
+
+    assert client.post(f"/api/v1/runs/{run_id}/stop").status_code == 200
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and family():
+        time.sleep(0.05)
+    assert family() == 0
+
+    record = client.get(f"/api/v1/runs/{run_id}").json()
+    assert record["status"] in ("stopped", "exited")
+
+
+def test_run_finishes_when_a_grandchild_keeps_the_pipe_open(
+    client: TestClient, executable: Path, tmp_path: Path
+) -> None:
+    """wineserver inherits the game's stdout; that must not keep the run "running"."""
+
+    import sys
+    import time
+
+    fake = tmp_path / "pipe-umu-run"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess, sys\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "print('game finished', flush=True)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    client.put("/api/v1/settings", json={"umu_run": str(fake)})
+
+    game = _create(client, executable, title="Pipe")
+    run = client.post(f"/api/v1/games/{game['id']}/launch")
+    assert run.status_code == 200, run.text
+    run_id = run.json()["run_id"]
+
+    deadline = time.monotonic() + 15
+    status = "running"
+    while time.monotonic() < deadline:
+        status = client.get(f"/api/v1/runs/{run_id}").json()["status"]
+        if status not in ("starting", "running"):
+            break
+        time.sleep(0.1)
+
+    assert status == "exited"
+    assert not client.get("/api/v1/runs").json()

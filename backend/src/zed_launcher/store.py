@@ -12,7 +12,7 @@ from typing import Any
 
 from .paths import db_path, ensure_dirs
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS runs (
     duration INTEGER,
     exit_code INTEGER,
     log_path TEXT NOT NULL DEFAULT '',
-    pid INTEGER
+    pid INTEGER,
+    pid_started TEXT
 );
 """
 
@@ -205,6 +206,7 @@ GAME_COLUMN_MIGRATIONS = {
 
 RUN_COLUMN_MIGRATIONS = {
     "pid": "INTEGER",
+    "pid_started": "TEXT",
 }
 
 DROPPED_COLUMNS = ("discord_rpc", "hidden")
@@ -427,15 +429,19 @@ def resolve_run(run_id: str, status: str, exit_code: int | None, duration: int) 
 
 
 def create_run(
-    game_id: str, log_path: str, status: str = "starting", pid: int | None = None
+    game_id: str,
+    log_path: str,
+    status: str = "starting",
+    pid: int | None = None,
+    pid_started: str = "",
 ) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
     started = now()
     with connect() as conn:
         conn.execute(
-            "INSERT INTO runs (id, game_id, status, started_at, log_path, pid) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (run_id, game_id, status, started, log_path, pid),
+            "INSERT INTO runs (id, game_id, status, started_at, log_path, pid, pid_started) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (run_id, game_id, status, started, log_path, pid, pid_started),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -448,9 +454,11 @@ def set_run_status(run_id: str, status: str) -> None:
         conn.commit()
 
 
-def set_run_pid(run_id: str, pid: int | None) -> None:
+def set_run_pid(run_id: str, pid: int | None, pid_started: str = "") -> None:
     with connect() as conn:
-        conn.execute("UPDATE runs SET pid = ? WHERE id = ?", (pid, run_id))
+        conn.execute(
+            "UPDATE runs SET pid = ?, pid_started = ? WHERE id = ?", (pid, pid_started, run_id)
+        )
         conn.commit()
 
 
@@ -512,13 +520,13 @@ def game_runs(game_id: str, limit: int = 20) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def reconcile_open_runs(alive: Callable[[int], bool]) -> list[str]:
+def reconcile_open_runs(alive: Callable[[int, str], bool]) -> list[str]:
     """Close runs whose recorded process is gone (crash, reboot, killed watcher)."""
 
     closed: list[str] = []
     for record in running_runs():
         pid = record.get("pid")
-        if pid and alive(int(pid)):
+        if pid and alive(int(pid), str(record.get("pid_started") or "")):
             continue
         duration = _seconds_since(record.get("started_at"))
         if resolve_run(record["id"], "closed", None, duration):

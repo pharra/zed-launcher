@@ -8,27 +8,27 @@ records the exit and playtime, unless the GUI already did it.
 from __future__ import annotations
 
 import contextlib
-import os
 import sys
 import time
 from datetime import UTC, datetime
 
 from . import store
 from .config import load_config
+from .services import processes
 from .services.notify import notify_game_exit
 
 POLL_INTERVAL = 2.0
 SETTLE_DELAY = 3.0
 
 
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+def _alive(pid: int, run_id: str) -> bool:
+    """Alive *and* still the process this run started (never a recycled pid)."""
+
+    run = store.get_run(run_id) or {}
+    started = str(run.get("pid_started") or "")
+    if started:
+        return processes.same_process(pid, started)
+    return processes.belongs_to_run(pid, run_id)
 
 
 def _duration(started_at: str | None, now: datetime) -> int:
@@ -49,10 +49,13 @@ def resolve_dead_run(run_id: str, game_id: str, pid: int) -> bool:
     run = store.get_run(run_id)
     if run is None:
         return False
-    if pid > 0 and _alive(pid):
+    if pid > 0 and _alive(pid, run_id):
         return False
 
     duration = _duration(run.get("started_at"), datetime.now(UTC))
+    # The game is gone, but wineserver may still be alive in its own session.
+    with contextlib.suppress(Exception):
+        processes.terminate_run(run_id, grace=1.0)
     if not store.resolve_run(run_id, "closed", None, duration):
         return False
     config = load_config()
@@ -80,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         return 2
 
-    while _alive(pid):
+    while _alive(pid, run_id):
         time.sleep(POLL_INTERVAL)
 
     time.sleep(SETTLE_DELAY)

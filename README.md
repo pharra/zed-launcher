@@ -86,6 +86,20 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   file is skipped and reported in the log.
 - **Live output** — stream stdout/stderr over WebSocket, keep a log file, stop the whole
   process group, track playtime.
+- **Process ownership** — every launch exports `ZED_RUN_ID=<run id>`, so the launcher can find
+  the whole tree again after `wineserver`, `services.exe` and the game itself call `setsid` and
+  leave its process group. Stopping a game kills the group *and* everything carrying the marker,
+  reaps wineserver when the game exits on its own, and keeps extra programs of one run from
+  touching another. Runs record the pid **and** its `/proc/<pid>/stat` start time, so a recycled
+  pid can never keep a finished run "running" or be signalled by mistake. The run also stops
+  reading the game's output a couple of seconds after the process exits, because wineserver and
+  any daemon the game started inherit that pipe and would otherwise keep it open forever - the
+  reason a finished game could still look "running". The header badge polls the active runs, so
+  it clears by itself while the window is open.
+- **Prefix cleanup uses the prefix, not a guess** — a Wine process is matched by an exact
+  `WINEPREFIX=` environment entry (or, for helpers that dropped it, a known wine binary whose
+  working directory is inside the prefix). Unrelated processes that merely run inside the folder
+  are left alone.
 - **Runs outlive the window** — every launch spawns a detached watcher, so the exit code
   and playtime are still recorded after the launcher is closed.
 - **Installer sessions are resumable** — the shortcut baseline is stored in SQLite, so detection
@@ -298,7 +312,9 @@ Data model:
 
 - `games` stores one row per game with its own `prefix_path`, `proton_path` and toggles.
 - `owned_prefix` marks prefixes created by the launcher; only those can be deleted with the game.
-- `runs` records every launch with status, exit code, duration and log path.
+- `runs` records every launch with status, exit code, duration, log path, plus `pid` and
+  `pid_started` (the `/proc/<pid>/stat` start time) so the launcher can verify that a recorded
+  process is still the one it started.
 - Settings hold `language`, `notifications`, `tray`, `backup_schedule`, `steamgriddb_api_key`,
   `proton_log` and `tool_paths` (explicit binary overrides) alongside the runtime paths.
 - Tool arguments (Gamescope, MangoHud) live on the game row, next to `env` and `launch_args`.

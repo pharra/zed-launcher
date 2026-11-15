@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -18,13 +19,24 @@ from .models import (
 router = APIRouter(prefix="/api/v1/prefixes", tags=["prefixes"])
 
 
+def _describe(pid: int) -> str:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return ""
+    return " ".join(part for part in raw.decode("utf-8", "replace").split("\0") if part)[:200]
+
+
 @router.get("/processes")
 def leftover_processes(path: str) -> dict:
     try:
         prefix = prefixes.require_dir(path)
     except prefixes.PrefixError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    entries = processes.leftovers(prefix)
+    entries = [
+        {"pid": entry.pid, "command": _describe(entry.pid)}
+        for entry in processes.leftovers(prefix)
+    ]
     return {"prefix_path": str(prefix), "processes": entries, "count": len(entries)}
 
 
@@ -34,7 +46,7 @@ def cleanup_processes(payload: PrefixCleanupRequest) -> dict:
         prefix = prefixes.require_dir(payload.path)
     except prefixes.PrefixError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    killed = processes.terminate(prefix)
+    killed = processes.terminate_prefix(prefix)
     return {"killed": killed, "remaining": len(processes.leftovers(prefix))}
 
 

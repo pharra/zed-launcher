@@ -13,9 +13,12 @@ from typing import Any
 from .. import store
 from ..config import load_config
 from ..paths import ensure_dirs, log_dir
-from . import diagnose, notify
+from . import diagnose, notify, processes
 from .command import LaunchPlan, ProgramRun
 from .gameenv import game_env
+
+# How long to keep reading the game's pipe after the process itself exited.
+PIPE_DRAIN_TIMEOUT = 2.0
 
 
 @dataclass
@@ -53,6 +56,14 @@ class RunningGame:
 class RunManager:
     def __init__(self) -> None:
         self._runs: dict[str, RunningGame] = {}
+        # asyncio only keeps a weak reference to a task, so an unreferenced task can be
+        # garbage collected before it ever runs.
+        self._tasks: set[asyncio.Task[Any]] = set()
+
+    def _spawn(self, coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def get(self, run_id: str) -> RunningGame | None:
         return self._runs.get(run_id)
@@ -96,6 +107,7 @@ class RunManager:
         run_id = record["id"]
 
         env = game_env(plan.env)
+        env[processes.RUN_MARKER] = run_id
 
         early: list[str] = []
 
@@ -131,6 +143,7 @@ class RunManager:
                 cwd=plan.cwd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
             )
             await pre.wait()
 
@@ -162,7 +175,7 @@ class RunManager:
             run.log_handle = open(log_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         self._runs[run_id] = run
         store.set_run_status(run_id, "running")
-        store.set_run_pid(run_id, process.pid)
+        store.set_run_pid(run_id, process.pid, processes.starttime_of(process.pid))
         await self._spawn_watcher(run_id, game["id"], process.pid)
         self._broadcast(run, {"type": "status", "status": "running", "pid": process.pid})
         self._append(run, f"$ {plan.description}")
@@ -172,7 +185,7 @@ class RunManager:
         run.pump_task = asyncio.create_task(self._pump(run))
         run.wait_task = asyncio.create_task(self._wait(run, plan))
         for program in plan.programs_after:
-            asyncio.create_task(self._start_program_later(run, program, env, plan.cwd))
+            self._spawn(self._start_program_later(run, program, env, plan.cwd))
         return run
 
     async def _start_program_later(
@@ -231,7 +244,14 @@ class RunManager:
     async def _wait(self, run: RunningGame, plan: LaunchPlan) -> None:
         exit_code = await run.process.wait()
         if run.pump_task is not None:
-            await run.pump_task
+            # A grandchild can inherit the pipe (wineserver, a game-launched daemon) and
+            # keep it open long after the game is gone. Never wait for EOF forever.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(run.pump_task), timeout=PIPE_DRAIN_TIMEOUT)
+            if not run.pump_task.done():
+                run.pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await run.pump_task
         duration = int(time.monotonic() - run.started_monotonic)
         status = "stopped" if run.stopped else ("exited" if exit_code == 0 else "failed")
         run.status = status
@@ -251,6 +271,10 @@ class RunManager:
                 "hints": hints,
             },
         )
+        # wineserver keeps running for a while after the game and would otherwise be
+        # inherited by the next launch; reap this run's leftovers in the background so
+        # the exit is reported immediately.
+        self._spawn(asyncio.to_thread(processes.terminate_run, run.run_id))
         config = load_config()
         if claimed and config.get("notifications", True):
             notify.notify_game_exit(
@@ -270,6 +294,7 @@ class RunManager:
                     cwd=plan.cwd,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
                 )
                 await post.wait()
 
@@ -280,14 +305,18 @@ class RunManager:
         run.stopped = True
         run.status = "stopping"
         self._broadcast(run, {"type": "status", "status": "stopping"})
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(run.process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return False
         try:
             await asyncio.wait_for(run.process.wait(), timeout=5)
         except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(run.process.pid, signal.SIGKILL)
+            # The pid may already be reaped and reused, so only signal the group while
+            # the process still exists.
+            if run.process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(run.process.pid, signal.SIGKILL)
             await run.process.wait()
+        # wineserver, services.exe and the game itself call setsid(), so they are not in
+        # the group that was just signalled: stop them by their run marker.
+        await asyncio.to_thread(processes.terminate_run, run.run_id)
         return True

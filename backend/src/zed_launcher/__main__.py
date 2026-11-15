@@ -14,9 +14,12 @@ from pathlib import Path
 from . import __version__, store
 from .config import load_config
 from .paths import ensure_dirs, log_dir, prune_proton_logs
-from .services import prefixes, proton, system
+from .services import prefixes, processes, proton, system
 from .services.command import PlanError, build_plan
 from .services.gameenv import game_env
+
+# How long to keep draining the game's pipe after the process itself exited.
+PIPE_DRAIN_TIMEOUT = 2.0
 
 
 def _prepare() -> None:
@@ -73,6 +76,7 @@ def run_headless(game_id: str, logs: bool = True) -> int:
     log_path = log_dir() / f"{game_id}-{int(time.time())}.log"
     record = store.create_run(game_id, str(log_path), status="starting")
     env = game_env(plan.env)
+    env[processes.RUN_MARKER] = record["id"]
     if plan.env.get("WINEPREFIX"):
         Path(plan.env["WINEPREFIX"]).mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +93,9 @@ def run_headless(game_id: str, logs: bool = True) -> int:
             time.sleep(program.delay)
 
     if plan.pre_launch:
-        subprocess.run(plan.pre_launch, shell=True, env=env, cwd=plan.cwd, check=False)
+        subprocess.run(  # noqa: S602 - user supplied hook
+            plan.pre_launch, shell=True, env=env, cwd=plan.cwd, check=False, start_new_session=True
+        )
 
     print(f"$ {plan.description}", flush=True)
     started = time.monotonic()
@@ -128,18 +134,31 @@ def run_headless(game_id: str, logs: bool = True) -> int:
 
     with log_path.open("w", encoding="utf-8") as log:
         assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="")
-            log.write(line)
-            log.flush()
+
+        def pump() -> None:
+            for line in process.stdout:  # type: ignore[union-attr]
+                print(line, end="")
+                log.write(line)
+                log.flush()
+
+        # A grandchild may inherit the pipe and keep it open after the game is gone, so
+        # read in the background and never let the pipe decide when the run ends.
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
         exit_code = process.wait()
+        reader.join(timeout=PIPE_DRAIN_TIMEOUT)
 
     duration = int(time.monotonic() - started)
     store.resolve_run(
         record["id"], "exited" if exit_code == 0 else "failed", exit_code, duration
     )
+    # wineserver and friends survive the game in their own sessions.
+    with contextlib.suppress(Exception):
+        processes.terminate_run(str(record["id"]))
     if plan.post_launch:
-        subprocess.run(plan.post_launch, shell=True, env=env, cwd=plan.cwd, check=False)
+        subprocess.run(  # noqa: S602 - user supplied hook
+            plan.post_launch, shell=True, env=env, cwd=plan.cwd, check=False, start_new_session=True
+        )
     return exit_code
 
 

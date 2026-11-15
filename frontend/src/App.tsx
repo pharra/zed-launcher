@@ -115,6 +115,23 @@ function Launcher() {
   }, [refreshInfo, refreshActive]);
 
   useEffect(() => {
+    // Games can exit on their own while the drawer is closed, so poll the active
+    // runs instead of relying on launch/stop actions to refresh the header.
+    const tick = () => {
+      refreshActive().catch(() => undefined);
+    };
+    const timer = setInterval(tick, 3000);
+    const onVisible = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshActive]);
+
+  useEffect(() => {
     if (info && !info.dependencies.ready) {
       setSetupOpen(true);
     }
