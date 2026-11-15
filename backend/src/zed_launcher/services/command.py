@@ -248,6 +248,38 @@ def build_plan(
     )
 
 
+# Layout of the builtin Windows tools inside a Proton build. GE-Proton and the
+# Steam builds use files/, older ones dist/.
+PROTON_WINE_DIRS = (
+    "files/lib/wine/x86_64-windows",
+    "files/lib/wine/i386-windows",
+    "dist/lib/wine/x86_64-windows",
+    "dist/lib/wine/i386-windows",
+)
+
+
+def wine_program(proton_path: str, name: str) -> str | None:
+    """Absolute path of a builtin tool (reg, regedit, winecfg) shipped with Proton.
+
+    Passing the real executable keeps umu on its "execute this file" path; a bare
+    name like ``regedit`` makes Proton warn "Executable not found" and fall back to
+    whatever the prefix happens to contain. Console tools such as ``reg.exe`` are
+    avoided for imports: wineconsole keeps its window open after the program ends.
+    """
+
+    for directory in PROTON_WINE_DIRS:
+        candidate = Path(proton_path) / directory / f"{name}.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def to_windows_path(path: str) -> str:
+    """Wine programs need a DOS path; Z: is the host root inside the prefix."""
+
+    return "Z:" + str(Path(path).expanduser()).replace("/", "\\")
+
+
 def build_tool_plan(
     *,
     kind: str,
@@ -278,12 +310,17 @@ def build_tool_plan(
     if log_dir:
         env["PROTON_LOG_DIR"] = log_dir
 
+    def builtin(name: str) -> str:
+        return wine_program(proton_path, name) or name
+
     if kind == "winecfg":
-        argv = [umu_run, "winecfg", *extra]
+        argv = [umu_run, builtin("winecfg"), *extra]
     elif kind == "regedit":
         if not target:
             raise PlanError("Choose a .reg file to import.")
-        argv = [umu_run, "regedit", target, *extra]
+        if not Path(target).is_file():
+            raise PlanError(f"Registry file not found: {target}")
+        argv = [umu_run, builtin("regedit"), "/S", to_windows_path(target), *extra]
     elif kind == "winetricks":
         if not extra:
             raise PlanError("Add at least one winetricks verb, for example `vcrun2022`.")
@@ -291,7 +328,11 @@ def build_tool_plan(
     elif kind == "exe":
         if not Path(target).is_file():
             raise PlanError(f"File not found: {target}")
-        argv = [umu_run, target, *extra]
+        if Path(target).suffix.lower() == ".reg":
+            # Picking a .reg in the file picker means "import it", not "execute it".
+            argv = [umu_run, builtin("regedit"), "/S", to_windows_path(target), *extra]
+        else:
+            argv = [umu_run, target, *extra]
     else:
         raise PlanError(f"Unknown prefix tool: {kind}")
 

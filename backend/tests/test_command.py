@@ -370,3 +370,54 @@ def test_duplicate_game_entries_are_collapsed(tmp_path: Path) -> None:
     assert [entry["kind"] for entry in sequence] == ["game", "program"]
     assert sequence[0]["path"] == "/games/real.exe"
     assert sequence[1]["delay"] == 0
+
+
+def _prefix_tool_plan(proton_dir: Path, umu_run: Path, **kwargs):
+    from zed_launcher.services.command import build_tool_plan
+
+    return build_tool_plan(
+        prefix_path="/tmp/prefix",
+        proton_path=str(proton_dir),
+        umu_run=str(umu_run),
+        log_dir="/tmp/logs",
+        **kwargs,
+    )
+
+
+def test_regedit_imports_through_the_proton_builtin(
+    proton_dir: Path, umu_run: Path, tmp_path: Path
+) -> None:
+    wine_dir = proton_dir / "files/lib/wine/x86_64-windows"
+    wine_dir.mkdir(parents=True)
+    regedit = wine_dir / "regedit.exe"
+    regedit.write_text("", encoding="utf-8")
+    reg = tmp_path / "hidpi.reg"
+    reg.write_text("Windows Registry Editor Version 5.00\n", encoding="utf-8")
+
+    plan = _prefix_tool_plan(proton_dir, umu_run, kind="regedit", target=str(reg))
+    assert plan.argv[1] == str(regedit)
+    # Silent import, and a DOS path: wine programs cannot open /home/... arguments.
+    assert plan.argv[2] == "/S"
+    assert plan.argv[3] == f"Z:{reg}".replace("/", "\\")
+
+
+def test_regedit_falls_back_to_the_bare_name(proton_dir: Path, umu_run: Path, tmp_path: Path) -> None:
+    reg = tmp_path / "x.reg"
+    reg.write_text("", encoding="utf-8")
+    plan = _prefix_tool_plan(proton_dir, umu_run, kind="regedit", target=str(reg))
+    assert plan.argv[1] == "regedit"
+
+
+def test_missing_registry_file_is_rejected(proton_dir: Path, umu_run: Path, tmp_path: Path) -> None:
+    with pytest.raises(PlanError, match="Registry file not found"):
+        _prefix_tool_plan(proton_dir, umu_run, kind="regedit", target=str(tmp_path / "gone.reg"))
+
+
+def test_a_reg_file_run_as_exe_is_imported(
+    proton_dir: Path, umu_run: Path, tmp_path: Path
+) -> None:
+    reg = tmp_path / "layer.reg"
+    reg.write_text("", encoding="utf-8")
+    plan = _prefix_tool_plan(proton_dir, umu_run, kind="exe", target=str(reg))
+    assert plan.argv[1].endswith("regedit.exe") or plan.argv[1] == "regedit"
+    assert plan.argv[2] == "/S"

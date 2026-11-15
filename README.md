@@ -30,6 +30,10 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
 - **Environment variables and game arguments are separate** — the Launch tab has a
   multi-line `KEY=VALUE` environment editor and a plain game-argument list. Old games that
   stored env assignments inside their arguments are migrated automatically.
+- **Registry import** — picking a `.reg` file (or the *Regedit* tool) runs Proton's own
+  `regedit.exe /S` with the file converted to a DOS path (`Z:\home\…`). Passing a bare
+  `regedit` made umu warn *Executable not found* and fall back to the prefix copy, and the
+  console `reg.exe` never returns because wineconsole keeps its window open.
 - **Prefix tools** — click the prefix name on a game card to run a file inside the prefix,
   open `winecfg`, import a `.reg`, run `winetricks` (with one-click presets such as
   vcrun2022 + corefonts, .NET 4.8, PhysX, XAudio), rescan for programs, see the prefix size,
