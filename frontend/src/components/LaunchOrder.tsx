@@ -31,8 +31,6 @@ export function withGameRow(entries: ExtraProgram[], gamePath: string): ExtraPro
 
 export function LaunchOrder({gamePath, entries, onChange}: LaunchOrderProps) {
   const {t} = useT();
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
   const [browseIndex, setBrowseIndex] = useState<number | null>(null);
 
   function replace(index: number, patch: Partial<ExtraProgram>) {
@@ -55,61 +53,26 @@ export function LaunchOrder({gamePath, entries, onChange}: LaunchOrderProps) {
     onChange([...entries, blankProgram()]);
   }
 
-  function drop(index: number) {
-    if (dragIndex !== null) move(dragIndex, index);
-    setDragIndex(null);
-    setOverIndex(null);
-  }
-
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <p className="text-xs leading-snug text-muted">
         {t(
-          "Programs start in this order — rows below the game start as soon as the game is up. Drag (or use the arrows) to reorder. Everything runs in one umu-run container, so the extra programs share the game's wine session.",
-          "程序按此顺序启动，游戏行之后的程序会在游戏起来后立即启动。拖拽（或使用箭头）调整顺序。全部程序在同一个 umu-run 容器里运行，因此额外程序与游戏共享同一个 wine 会话。",
+          "Programs start in this order — rows below the game start as soon as the game is up. Use the arrows to reorder. Everything runs in one umu-run container, so the extra programs share the game's wine session.",
+          "程序按此顺序启动，游戏行之后的程序会在游戏起来后立即启动。使用箭头调整顺序。全部程序在同一个 umu-run 容器里运行，因此额外程序与游戏共享同一个 wine 会话。",
         )}
       </p>
 
       <div className="flex flex-col gap-2">
         {entries.map((entry, index) => {
           const isGame = entry.kind === "game";
-          const active = dragIndex === index;
           return (
             <div
               key={`${entry.kind}-${index}`}
-              draggable
-              onDragStart={() => setDragIndex(index)}
-              onDragEnd={() => {
-                setDragIndex(null);
-                setOverIndex(null);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setOverIndex(index);
-              }}
-              onDragLeave={() => setOverIndex((current) => (current === index ? null : current))}
-              onDrop={(event) => {
-                event.preventDefault();
-                drop(index);
-              }}
               className={`flex min-w-0 flex-col gap-2 rounded-xl border px-3 py-2.5 transition ${
-                active ? "opacity-60" : ""
-              } ${
-                overIndex === index && dragIndex !== null && dragIndex !== index
-                  ? "border-accent"
-                  : isGame
-                    ? "border-accent/40 bg-accent/5"
-                    : "border-border/50 bg-surface/40"
+                isGame ? "border-accent/40 bg-accent/5" : "border-border/50 bg-surface/40"
               }`}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden
-                  className="shrink-0 cursor-grab text-muted select-none"
-                  title={t("Drag to reorder", "拖拽排序")}
-                >
-                  ⠿
-                </span>
                 <span className="shrink-0 rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted">
                   {index + 1}
                 </span>
