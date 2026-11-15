@@ -211,15 +211,37 @@ def build_launch_script(
     return "\r\n".join(lines), order
 
 
-def mount_dirs(paths: Iterable[str], existing: str = "") -> str:
-    """Colon-separated directories to bind into the container, keeping anyone else's."""
+def normalize_mount_dirs(value: Any) -> list[str]:
+    """Validate the directories a game wants inside its container.
 
-    entries = [part for part in existing.split(":") if part]
-    for raw in paths:
-        directory = str(Path(raw).parent)
-        if directory and directory not in entries:
-            entries.append(directory)
-    return ":".join(entries)
+    They are absolute host paths that pressure-vessel binds read-write, so a typo has
+    to be reported when the game is saved rather than swallowed at launch.
+    """
+
+    candidates = value.splitlines() if isinstance(value, str) else list(value or [])
+    result: list[str] = []
+    for raw in candidates:
+        text = str(raw).strip()
+        if not text:
+            continue
+        path = Path(text).expanduser()
+        if not path.is_absolute():
+            raise PlanError(f"Container directories must be absolute paths: {text}")
+        if not path.is_dir():
+            raise PlanError(f"Container directory does not exist: {text}")
+        if str(path) not in result:
+            result.append(str(path))
+    return result
+
+
+def mount_list(existing: str, entries: Iterable[str]) -> str:
+    """Colon-separated directories for the container, keeping anyone else's values."""
+
+    merged = [part for part in existing.split(":") if part]
+    for entry in entries:
+        if entry and entry not in merged:
+            merged.append(entry)
+    return ":".join(merged)
 
 
 def build_plan(
@@ -321,6 +343,7 @@ def build_plan(
     # umu-run calls would each get their own /tmp (and therefore their own wineserver).
     script = ""
     order: list[str] = []
+    folders: list[str] = []
     if before or after:
         script, order = build_launch_script(path, game_args, before, after)
         # Hand the .bat to umu-run as the executable (Faugus does the same). Wine runs a
@@ -329,10 +352,22 @@ def build_plan(
         argv = [*wrappers, umu_run, SCRIPT_TOKEN]
         # The container only sees the target executable's directory, so every program the
         # script starts from somewhere else has to be mounted explicitly.
-        env[MOUNT_ENV] = mount_dirs(order, env.get(MOUNT_ENV, ""))
-        notes_extra.append(f"{MOUNT_ENV}={env[MOUNT_ENV]}")
+        folders.extend(str(Path(part).parent) for part in order)
     else:
         argv = [*wrappers, umu_run, path, *game_args]
+
+    # Directories the user added by hand, for programs and data living outside the
+    # directories above; a drive that went away is skipped with a note instead of failing.
+    wanted = [str(entry) for entry in (game.get("mount_dirs") or [])]
+    missing_dirs = [entry for entry in wanted if not Path(entry).is_dir()]
+    if missing_dirs:
+        notes_extra.append(
+            "These container directories do not exist and were skipped: " + ", ".join(missing_dirs)
+        )
+    folders.extend(entry for entry in wanted if entry not in missing_dirs)
+    if folders:
+        env[MOUNT_ENV] = mount_list(env.get(MOUNT_ENV, ""), folders)
+        notes_extra.append(f"{MOUNT_ENV}={env[MOUNT_ENV]}")
 
     cwd = str(game.get("working_dir") or "") or str(Path(path).parent)
 

@@ -4,6 +4,7 @@ import {Button, Chip, Input, Label, ListBox, Modal, ScrollShadow, Select, TextAr
 import {api, formatSize, runEventsUrl} from "../lib/api";
 import {useT} from "../lib/i18n";
 import {statusLabel} from "../lib/status";
+import {logPaneClass} from "../lib/styles";
 import type {Game, PrefixToolKind, ProtonBuild, ShortcutCandidate} from "../lib/types";
 import {FolderIcon, RefreshIcon, TerminalIcon} from "./icons";
 import {PathBrowser} from "./PathBrowser";
@@ -424,7 +425,7 @@ export function PrefixTools({game, protons, onClose}: PrefixToolsProps) {
                       {statusLabel(status || "starting", t)}
                     </Chip>
                   </div>
-                  <ScrollShadow className="h-[30vh] rounded-xl border border-border/50 bg-black/60 p-3 font-mono text-[11px] leading-5">
+                  <ScrollShadow className={`h-[30vh] ${logPaneClass}`}>
                     {lines.map((line, index) => (
                       <div key={`${index}-${line.slice(0, 16)}`} className="whitespace-pre-wrap break-all">
                         {line}

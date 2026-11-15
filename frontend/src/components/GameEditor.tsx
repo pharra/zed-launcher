@@ -6,6 +6,7 @@ import {useT} from "../lib/i18n";
 import type {Dependencies, Game, GameInput, ProtonBuild, ShortcutCandidate} from "../lib/types";
 import {FolderIcon, SearchIcon} from "./icons";
 import {LaunchOrder, withGameRow} from "./LaunchOrder";
+import {MountDirs} from "./MountDirs";
 import {SgdbPicker} from "./SgdbPicker";
 import {PathBrowser} from "./PathBrowser";
 
@@ -29,6 +30,7 @@ const emptyGame: GameInput = {
   post_launch: "",
   env: "",
   extra_programs: [],
+  mount_dirs: [],
   proton_path: "",
   cover: "",
   icon: "",
@@ -299,6 +301,7 @@ export function GameEditor({
     const payload: GameInput = {
       ...form,
       extra_programs: withGameRow(form.extra_programs ?? [], form.path ?? ""),
+      mount_dirs: (form.mount_dirs ?? []).map((dir) => dir.trim()).filter(Boolean),
     };
     try {
       let saved: Game;
@@ -525,6 +528,11 @@ export function GameEditor({
                     gamePath={form.path ?? ""}
                     entries={withGameRow(form.extra_programs ?? [], form.path ?? "")}
                     onChange={(entries) => set("extra_programs", entries)}
+                  />
+                  <div className="h-px bg-border/60" />
+                  <MountDirs
+                    dirs={form.mount_dirs ?? []}
+                    onChange={(dirs) => set("mount_dirs", dirs)}
                   />
                 </Tabs.Panel>
 

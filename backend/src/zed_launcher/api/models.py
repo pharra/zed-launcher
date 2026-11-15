@@ -36,6 +36,7 @@ class GameCreate(GameToggles):
     launch_args: str = ""
     env: str = ""
     extra_programs: list[ExtraProgram] = []
+    mount_dirs: list[str] = []
     working_dir: str = ""
     pre_launch: str = ""
     post_launch: str = ""
@@ -54,6 +55,7 @@ class GamePatch(BaseModel):
     launch_args: str | None = None
     env: str | None = None
     extra_programs: list[ExtraProgram] | None = None
+    mount_dirs: list[str] | None = None
     working_dir: str | None = None
     pre_launch: str | None = None
     post_launch: str | None = None

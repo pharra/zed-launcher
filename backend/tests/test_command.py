@@ -7,6 +7,7 @@ import pytest
 from zed_launcher.services.command import (
     PlanError,
     build_plan,
+    normalize_mount_dirs,
     umu_game_id,
 )
 
@@ -538,3 +539,37 @@ def test_script_keeps_extra_program_arguments(
         ],
     )
     assert r"--cfg C:\x\y.ini" in plan.script
+
+
+def test_user_directories_are_mounted_without_extra_programs(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, mount_dirs=[str(shared)])
+    # No batch file here, so nothing else adds entries: the user's directory still has to
+    # reach the container.
+    assert plan.argv[-1] == str(executable)
+    assert plan.env["PRESSURE_VESSEL_FILESYSTEMS_RW"] == str(shared)
+
+
+def test_missing_user_directory_is_skipped_with_a_note(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    plan = _tool_plan(
+        executable, umu_run, proton_dir, tmp_path, mount_dirs=[str(tmp_path / "gone")]
+    )
+    assert "PRESSURE_VESSEL_FILESYSTEMS_RW" not in plan.env
+    assert any("do not exist" in note for note in plan.notes)
+
+
+def test_normalize_mount_dirs_cleans_and_validates(tmp_path) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir()
+
+    assert normalize_mount_dirs([f"{shared}/", str(shared), "  "]) == [str(shared)]
+    assert normalize_mount_dirs(f"{shared}\n") == [str(shared)]
+    with pytest.raises(PlanError, match="absolute"):
+        normalize_mount_dirs(["relative"])
+    with pytest.raises(PlanError, match="does not exist"):
+        normalize_mount_dirs([str(tmp_path / "gone")])

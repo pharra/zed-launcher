@@ -8,6 +8,7 @@ export interface Game {
   launch_args: string;
   env: string;
   extra_programs: ExtraProgram[];
+  mount_dirs: string[];
   working_dir: string;
   pre_launch: string;
   post_launch: string;

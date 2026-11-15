@@ -12,7 +12,7 @@ from typing import Any
 
 from .paths import db_path, ensure_dirs
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS games (
     launch_args TEXT NOT NULL DEFAULT '',
     env TEXT NOT NULL DEFAULT '',
     extra_programs TEXT NOT NULL DEFAULT '[]',
+    mount_dirs TEXT NOT NULL DEFAULT '[]',
     working_dir TEXT NOT NULL DEFAULT '',
     pre_launch TEXT NOT NULL DEFAULT '',
     post_launch TEXT NOT NULL DEFAULT '',
@@ -95,6 +96,7 @@ GAME_FIELDS = (
     "launch_args",
     "env",
     "extra_programs",
+    "mount_dirs",
     "working_dir",
     "pre_launch",
     "post_launch",
@@ -173,6 +175,7 @@ def _migrate_legacy(conn: sqlite3.Connection, fallback_root: str) -> None:
             "launch_args": record.get("launch_args") or "",
             "env": "",
             "extra_programs": "[]",
+            "mount_dirs": "[]",
             "working_dir": record.get("working_dir") or "",
             "pre_launch": record.get("pre_launch") or "",
             "post_launch": record.get("post_launch") or "",
@@ -202,6 +205,7 @@ GAME_COLUMN_MIGRATIONS = {
     "mangohud_args": "TEXT NOT NULL DEFAULT ''",
     "env": "TEXT NOT NULL DEFAULT ''",
     "extra_programs": "TEXT NOT NULL DEFAULT '[]'",
+    "mount_dirs": "TEXT NOT NULL DEFAULT '[]'",
 }
 
 RUN_COLUMN_MIGRATIONS = {
@@ -274,10 +278,10 @@ def init_db(fallback_prefix_root: str | None = None, path: Path | None = None) -
         conn.commit()
 
 
-JSON_FIELDS = ("extra_programs",)
+JSON_FIELDS = ("extra_programs", "mount_dirs")
 
 
-def _dump_programs(value: Any) -> str:
+def _dump_list(value: Any) -> str:
     if isinstance(value, str):
         return value or "[]"
     return json.dumps(list(value or []), ensure_ascii=False)
@@ -330,7 +334,7 @@ def create_game(data: dict[str, Any]) -> dict[str, Any]:
         "args": data.get("args", ""),
         "launch_args": data.get("launch_args", ""),
         "env": data.get("env", ""),
-        "extra_programs": _dump_programs(data.get("extra_programs")),
+        "extra_programs": _dump_list(data.get("extra_programs")),
         "working_dir": data.get("working_dir", ""),
         "pre_launch": data.get("pre_launch", ""),
         "post_launch": data.get("post_launch", ""),
@@ -368,7 +372,7 @@ def update_game(game_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
             if key in BOOL_FIELDS:
                 values[key] = int(bool(value))
             elif key in JSON_FIELDS:
-                values[key] = _dump_programs(value)
+                values[key] = _dump_list(value)
             else:
                 values[key] = value
     if not values:

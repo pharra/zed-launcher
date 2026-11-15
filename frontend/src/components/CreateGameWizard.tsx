@@ -14,6 +14,7 @@ import {
 
 import {api, runEventsUrl} from "../lib/api";
 import {useT} from "../lib/i18n";
+import {logMutedClass, logPaneClass} from "../lib/styles";
 import type {Dependencies, DetectionResult, ProtonBuild, ShortcutCandidate} from "../lib/types";
 import {FolderIcon, PlayIcon, RefreshIcon, TerminalIcon} from "./icons";
 import {PathBrowser} from "./PathBrowser";
@@ -574,9 +575,9 @@ export function CreateGameWizard({
                     )}
                   </p>
 
-                  <ScrollShadow className="h-[26vh] rounded-xl border border-border/50 bg-black/60 p-3 font-mono text-[11px] leading-5">
+                  <ScrollShadow className={`h-[26vh] ${logPaneClass}`}>
                     {lines.length === 0 ? (
-                      <p className="text-muted">{t("No output yet.", "暂无输出。")}</p>
+                      <p className={logMutedClass}>{t("No output yet.", "暂无输出。")}</p>
                     ) : (
                       lines.map((line, index) => (
                         <div key={`${index}-${line.slice(0, 16)}`} className="whitespace-pre-wrap break-all">

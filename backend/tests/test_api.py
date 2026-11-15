@@ -770,3 +770,25 @@ def test_games_report_whether_a_shortcut_exists(
 
     assert client.delete(f"/api/v1/games/{game['id']}/shortcut").status_code == 204
     assert client.get(f"/api/v1/games/{game['id']}").json()["shortcut"] is False
+
+
+def test_mount_dirs_must_be_existing_absolute_directories(
+    client: TestClient, executable: Path, tmp_path: Path
+) -> None:
+    game = _create(client, executable)
+    extra = tmp_path / "shared"
+    extra.mkdir()
+
+    ok = client.patch(f"/api/v1/games/{game['id']}", json={"mount_dirs": [f"{extra}/"]})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["mount_dirs"] == [str(extra)]
+
+    assert (
+        client.patch(f"/api/v1/games/{game['id']}", json={"mount_dirs": ["relative/dir"]}).status_code
+        == 400
+    )
+    missing = client.patch(
+        f"/api/v1/games/{game['id']}", json={"mount_dirs": [str(tmp_path / "gone")]}
+    )
+    assert missing.status_code == 400
+    assert "does not exist" in missing.json()["detail"]

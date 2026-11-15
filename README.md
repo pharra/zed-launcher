@@ -121,6 +121,13 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   invisible and `start` fails without a word. The launcher therefore adds the directory of every
   program in the script to `PRESSURE_VESSEL_FILESYSTEMS_RW`, which asks pressure-vessel to bind
   them read-write; a value set in the game's environment is kept and extended.
+- **Extra container folders** — the Programs tab has a list of directories that are added to
+  `PRESSURE_VESSEL_FILESYSTEMS_RW` for that game. Use it for data or programs that live outside the
+  prefix and outside the executable folders (a drive like `/game`, an external disk): anything not
+  listed there does not exist inside the container. Paths must be absolute and exist when the game
+  is saved; a folder that disappeared before launch is skipped with a note in the log. Faugus does
+  not need this because it is a Flatpak whose sandbox already carries `filesystem=/game`, and the
+  Steam Runtime container inherits the Flatpak permissions; a native launcher does not.
 - **Live output** — stream stdout/stderr over WebSocket, keep a log file, stop the whole
   process group, track playtime.
 - **Process ownership** — every launch exports `ZED_RUN_ID=<run id>`, so the launcher can find

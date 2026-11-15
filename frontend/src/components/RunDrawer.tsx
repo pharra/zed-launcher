@@ -3,6 +3,7 @@ import {Button, Chip, Modal, ScrollShadow, toast} from "@heroui/react";
 
 import {api, runEventsUrl} from "../lib/api";
 import {useT} from "../lib/i18n";
+import {logMutedClass, logPaneClass} from "../lib/styles";
 import {statusLabel} from "../lib/status";
 import type {RunSnapshot} from "../lib/types";
 import {TerminalIcon} from "./icons";
@@ -122,9 +123,9 @@ export function RunDrawer({run, confirmKill, onClose, onExited}: RunDrawerProps)
                 {run.argv.join(" ")}
               </pre>
             )}
-            <ScrollShadow className="h-[42vh] rounded-xl border border-border/50 bg-black/60 p-3 font-mono text-[11px] leading-5">
+            <ScrollShadow className={`h-[42vh] ${logPaneClass}`}>
               {lines.length === 0 ? (
-                <p className="text-muted">{t("Waiting for output…", "等待输出…")}</p>
+                <p className={logMutedClass}>{t("Waiting for output…", "等待输出…")}</p>
               ) : (
                 lines.map((line, index) => (
                   <div key={`${index}-${line.slice(0, 16)}`} className="whitespace-pre-wrap break-all">

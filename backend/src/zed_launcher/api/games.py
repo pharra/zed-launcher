@@ -10,7 +10,7 @@ from .. import store
 from ..config import load_config
 from ..paths import log_dir
 from ..services import artwork, icons, prefixes, proton, system
-from ..services.command import PlanError, build_plan, normalize_programs
+from ..services.command import PlanError, build_plan, normalize_mount_dirs, normalize_programs
 from ..services.shortcuts import create_desktop_entry, remove_desktop_entry, shortcut_exists
 from .models import ArtworkRequest, GameCreate, GamePatch
 
@@ -116,6 +116,10 @@ def create_game(payload: GameCreate) -> dict:
                 data["icon"] = extracted
 
     data["extra_programs"] = normalize_programs(data.get("extra_programs"), data["path"])
+    try:
+        data["mount_dirs"] = normalize_mount_dirs(data.get("mount_dirs"))
+    except PlanError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     game = store.create_game(data)
     if install_id:
         store.delete_install(install_id)
@@ -143,6 +147,12 @@ def update_game(game_id: str, payload: GamePatch) -> dict:
         if resolved is None:
             raise HTTPException(status_code=400, detail=f"Proton build not found: {patch['proton_path']}")
         patch["proton_path"] = resolved
+
+    if "mount_dirs" in patch:
+        try:
+            patch["mount_dirs"] = normalize_mount_dirs(patch["mount_dirs"])
+        except PlanError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     if "extra_programs" in patch or "path" in patch:
         current = store.get_game(game_id)
