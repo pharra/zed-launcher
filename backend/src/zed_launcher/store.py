@@ -12,7 +12,7 @@ from typing import Any
 
 from .paths import db_path, ensure_dirs
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS games (
     gamemode INTEGER NOT NULL DEFAULT 0,
     gamescope INTEGER NOT NULL DEFAULT 0,
     gamescope_args TEXT NOT NULL DEFAULT '',
+    kwin INTEGER NOT NULL DEFAULT 0,
+    kwin_args TEXT NOT NULL DEFAULT '',
     mangohud_args TEXT NOT NULL DEFAULT '',
     no_sleep INTEGER NOT NULL DEFAULT 0,
     sdl INTEGER NOT NULL DEFAULT 0,
@@ -79,6 +81,7 @@ BOOL_FIELDS = (
     "mangohud",
     "gamemode",
     "gamescope",
+    "kwin",
     "no_sleep",
     "sdl",
     "wayland",
@@ -106,6 +109,8 @@ GAME_FIELDS = (
     "gamemode",
     "gamescope",
     "gamescope_args",
+    "kwin",
+    "kwin_args",
     "mangohud_args",
     "no_sleep",
     "sdl",
@@ -203,6 +208,8 @@ def _migrate_legacy(conn: sqlite3.Connection, fallback_root: str) -> None:
 GAME_COLUMN_MIGRATIONS = {
     "gamescope_args": "TEXT NOT NULL DEFAULT ''",
     "mangohud_args": "TEXT NOT NULL DEFAULT ''",
+    "kwin": "INTEGER NOT NULL DEFAULT 0",
+    "kwin_args": "TEXT NOT NULL DEFAULT ''",
     "env": "TEXT NOT NULL DEFAULT ''",
     "extra_programs": "TEXT NOT NULL DEFAULT '[]'",
     "mount_dirs": "TEXT NOT NULL DEFAULT '[]'",
@@ -342,6 +349,7 @@ def create_game(data: dict[str, Any]) -> dict[str, Any]:
         "icon": data.get("icon", ""),
         "gamescope_args": data.get("gamescope_args", ""),
         "mangohud_args": data.get("mangohud_args", ""),
+        "kwin_args": data.get("kwin_args", ""),
         "playtime": int(data.get("playtime", 0) or 0),
         "last_played": data.get("last_played"),
         "created_at": timestamp,

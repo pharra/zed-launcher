@@ -75,6 +75,7 @@ export function DiagnosticsPage({info, onRefresh}: DiagnosticsPageProps) {
               <StatusRow label="MangoHud" value={info.tools.mangohud} />
               <StatusRow label="GameMode" value={info.tools.gamemoderun} />
               <StatusRow label="Gamescope" value={info.tools.gamescope} />
+              <StatusRow label="kwin_wayland" value={info.tools.kwin} />
               <StatusRow label="systemd-inhibit" value={info.tools.systemd_inhibit} />
               <StatusRow label="notify-send" value={info.tools.notify_send} />
               <StatusRow label="icoextract" value={info.tools.icoextract} />

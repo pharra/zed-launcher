@@ -119,11 +119,16 @@ export function CreateGameWizard({
     mangohud: false,
     gamemode: false,
     gamescope: false,
+    kwin: false,
     no_sleep: false,
     wayland: false,
     wow64: false,
   });
-  const [toolArgs, setToolArgs] = useState({gamescope_args: "", mangohud_args: ""});
+  const [toolArgs, setToolArgs] = useState({
+    gamescope_args: "",
+    kwin_args: "",
+    mangohud_args: "",
+  });
   const [installId, setInstallId] = useState<string | null>(null);
   const [installPrefix, setInstallPrefix] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
@@ -150,11 +155,12 @@ export function CreateGameWizard({
       mangohud: false,
       gamemode: false,
       gamescope: false,
+      kwin: false,
       no_sleep: false,
       wayland: false,
       wow64: false,
     });
-    setToolArgs({gamescope_args: "", mangohud_args: ""});
+    setToolArgs({gamescope_args: "", kwin_args: "", mangohud_args: ""});
     setInstallId(null);
     setInstallPrefix("");
     setRunId(null);
@@ -676,6 +682,7 @@ export function CreateGameWizard({
                         ["mangohud", t("MangoHud", "MangoHud"), t("Performance overlay", "性能浮层"), "mangohud"],
                         ["gamemode", t("GameMode", "GameMode"), t("Request performance mode", "请求性能模式"), "gamemoderun"],
                         ["gamescope", t("Gamescope", "Gamescope"), t("Nested compositor", "嵌套合成器"), "gamescope"],
+                        ["kwin", t("KWin (nested)", "KWin（嵌套）"), t("Nested KWin session — keeps always-on-top overlays visible", "嵌套 KWin 会话 — 置顶浮层不会被丢弃"), "kwin"],
                         ["no_sleep", t("Prevent sleep", "阻止休眠"), t("Inhibit suspend", "运行期间禁止挂起"), "systemd_inhibit"],
                         ["wayland", t("Wayland driver", "Wayland 驱动"), "PROTON_ENABLE_WAYLAND", null],
                         ["wow64", t("WOW64", "WOW64"), "PROTON_USE_WOW64", null],
@@ -684,9 +691,17 @@ export function CreateGameWizard({
                       const available =
                         dependency === null ||
                         Boolean(dependencies?.optional[dependency]?.available);
-                      const hint = available
-                        ? description
-                        : t(`${label} is not installed`, `${label} 未安装`);
+                      // Gamescope and KWin both compose the session, so only one can be on.
+                      const rival = key === "kwin" ? "gamescope" : key === "gamescope" ? "kwin" : null;
+                      const blocked = rival !== null && toggles[rival];
+                      const hint = blocked
+                        ? t(
+                            "Mutually exclusive with the other nested compositor",
+                            "与另一个嵌套合成器互斥",
+                          )
+                        : available
+                          ? description
+                          : t(`${label} is not installed`, `${label} 未安装`);
                       return (
                         <div
                           key={key}
@@ -701,7 +716,7 @@ export function CreateGameWizard({
                             <span className="text-sm">{label}</span>
                             <span
                               className={`text-[11px] leading-snug break-all ${
-                                available ? "text-muted" : "text-warning"
+                                available && !blocked ? "text-muted" : "text-warning"
                               }`}
                             >
                               {hint}
@@ -710,7 +725,7 @@ export function CreateGameWizard({
                           <div className="shrink-0">
                             <Switch
                               size="sm"
-                              isDisabled={!available}
+                              isDisabled={!available || blocked}
                               isSelected={available && toggles[key]}
                               onChange={(value) => setToggles((current) => ({...current, [key]: value}))}
                             >
@@ -726,7 +741,7 @@ export function CreateGameWizard({
                     })}
                   </div>
 
-                  {(toggles.gamescope || toggles.mangohud) && (
+                  {(toggles.gamescope || toggles.kwin || toggles.mangohud) && (
                     <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-surface/40 p-3">
                       <span className="text-sm font-medium">{t("Tool arguments", "工具参数")}</span>
                       {toggles.gamescope && (
@@ -737,6 +752,20 @@ export function CreateGameWizard({
                           description={t("Defaults to -f.", "留空时使用 -f。")}
                           onChange={(value) =>
                             setToolArgs((current) => ({...current, gamescope_args: value}))
+                          }
+                        />
+                      )}
+                      {toggles.kwin && (
+                        <ArgumentField
+                          label={t("KWin arguments", "KWin 参数")}
+                          placeholder="--width 1600 --height 900 --xwayland"
+                          value={toolArgs.kwin_args}
+                          description={t(
+                            "Defaults to --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts.",
+                            "留空时使用 --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts。",
+                          )}
+                          onChange={(value) =>
+                            setToolArgs((current) => ({...current, kwin_args: value}))
                           }
                         />
                       )}

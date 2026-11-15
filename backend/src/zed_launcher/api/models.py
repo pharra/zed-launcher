@@ -18,6 +18,7 @@ class GameToggles(BaseModel):
     mangohud: bool = False
     gamemode: bool = False
     gamescope: bool = False
+    kwin: bool = False
     no_sleep: bool = False
     sdl: bool = False
     wayland: bool = False
@@ -43,6 +44,7 @@ class GameCreate(GameToggles):
     cover: str = ""
     icon: str = ""
     gamescope_args: str = ""
+    kwin_args: str = ""
     mangohud_args: str = ""
 
 
@@ -64,7 +66,9 @@ class GamePatch(BaseModel):
     mangohud: bool | None = None
     gamemode: bool | None = None
     gamescope: bool | None = None
+    kwin: bool | None = None
     gamescope_args: str | None = None
+    kwin_args: str | None = None
     mangohud_args: str | None = None
     no_sleep: bool | None = None
     sdl: bool | None = None

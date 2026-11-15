@@ -516,6 +516,7 @@ export function SettingsModal({
                         ["mangohud", "MangoHud"],
                         ["gamemoderun", "GameMode"],
                         ["gamescope", "Gamescope"],
+                        ["kwin", "kwin_wayland"],
                         ["systemd_inhibit", "systemd-inhibit"],
                         ["notify_send", "notify-send"],
                         ["icoextract", "icoextract"],

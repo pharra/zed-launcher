@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import zlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -211,6 +212,22 @@ def build_launch_script(
     return "\r\n".join(lines), order
 
 
+# A nested KWin session: windowed, with Xwayland so wine can talk to it, and without the
+# Plasma desktop pieces a game does not need. KWin keeps _NET_WM_STATE_ABOVE working, which
+# is what always-on-top overlays (deck trackers, chat clients) need and gamescope ignores.
+KWIN_ARGS = "--width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts"
+
+
+def kwin_prefix(binary: str, raw: str, environ: Mapping[str, str]) -> list[str]:
+    """The KWin arguments in front of the command that runs inside its session."""
+
+    argv = [binary, *(shlex.split(raw.strip() or KWIN_ARGS))]
+    # Nesting into an X11 session needs the parent display; under Wayland KWin finds it.
+    if not environ.get("WAYLAND_DISPLAY") and environ.get("DISPLAY"):
+        argv.extend(["--x11-display", str(environ["DISPLAY"])])
+    return [*argv, "--exit-with-session"]
+
+
 def normalize_mount_dirs(value: Any) -> list[str]:
     """Validate the directories a game wants inside its container.
 
@@ -266,6 +283,10 @@ def build_plan(
         raise PlanError("No Proton build found. Add one in the Proton manager or install proton-ge-bin.")
     if not prefix_path:
         raise PlanError("This game has no Wine prefix.")
+    if game.get("kwin") and game.get("gamescope"):
+        raise PlanError(
+            "Gamescope and KWin both compose the game session, so only one can be enabled."
+        )
 
     game_args = split_args(str(game.get("args") or ""))
     env_override = parse_env(str(game.get("env") or ""))
@@ -315,6 +336,12 @@ def build_plan(
                 "--why=Zed Launcher is running a game",
                 "--",
             ]
+        )
+    if game.get("kwin") and available.get("kwin"):
+        wrappers.extend(
+            kwin_prefix(
+                str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
+            )
         )
     if game.get("gamemode") and available.get("gamemoderun"):
         wrappers.append(str(available["gamemoderun"]))

@@ -81,6 +81,7 @@ def test_wrappers_are_applied_in_order(
             "systemd_inhibit": "/usr/bin/systemd-inhibit",
             "gamemoderun": "/usr/bin/gamemoderun",
             "gamescope": "/usr/bin/gamescope",
+        "kwin": "/usr/bin/kwin_wayland",
             "mangohud": "/usr/bin/mangohud",
         },
         config={"gamescope_args": "-f -W 1920 -H 1080"},
@@ -173,6 +174,7 @@ def _tool_plan(executable, umu_run, proton_dir, tmp_path, **overrides):
     available = {
         "umu_run": str(umu_run),
         "gamescope": "/usr/bin/gamescope",
+        "kwin": "/usr/bin/kwin_wayland",
         "mangohud": "/usr/bin/mangohud",
         "gamemoderun": "/usr/bin/gamemoderun",
     }
@@ -192,6 +194,46 @@ def test_gamescope_uses_per_game_arguments(executable, umu_run, proton_dir, tmp_
     )
     gamescope = plan.argv.index("/usr/bin/gamescope")
     assert plan.argv[gamescope + 1 : gamescope + 4] == ["-W", "1280", "-H"]
+
+
+def test_kwin_wraps_the_launch_in_a_nested_session(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    assert Path(plan.argv[0]).name == "kwin_wayland"
+    assert "--xwayland" in plan.argv
+    assert plan.argv[-3:] == ["--exit-with-session", str(umu_run), str(executable)]
+    # A nested Wayland session finds its parent display on its own.
+    assert "--x11-display" not in plan.argv
+
+
+def test_kwin_gets_the_parent_x11_display(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    assert plan.argv[plan.argv.index("--x11-display") + 1] == ":0"
+    assert plan.argv[-3:] == ["--exit-with-session", str(umu_run), str(executable)]
+
+
+def test_kwin_arguments_replace_the_defaults(executable, umu_run, proton_dir, tmp_path) -> None:
+    plan = _tool_plan(
+        executable, umu_run, proton_dir, tmp_path, kwin=True, kwin_args="--width 2560 --height 1440"
+    )
+    assert plan.argv[1:3] == ["--width", "2560"]
+    assert "--no-lockscreen" not in plan.argv
+
+
+def test_kwin_and_gamescope_are_mutually_exclusive(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    with pytest.raises(PlanError, match="only one"):
+        _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True, gamescope=True)
 
 
 def test_gamescope_falls_back_to_fullscreen(executable, umu_run, proton_dir, tmp_path) -> None:

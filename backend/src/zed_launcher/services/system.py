@@ -33,6 +33,7 @@ OPTIONAL_TOOLS = {
     "mangohud": "MangoHud",
     "gamemoderun": "GameMode",
     "gamescope": "Gamescope",
+    "kwin": "KWin (nested session)",
     "systemd_inhibit": "systemd-inhibit",
     "notify_send": "Desktop notifications",
     "icoextract": "Icon extraction",
@@ -43,6 +44,7 @@ TOOL_BINARIES = {
     "mangohud": "mangohud",
     "gamemoderun": "gamemoderun",
     "gamescope": "gamescope",
+    "kwin": "kwin_wayland",
     "systemd_inhibit": "systemd-inhibit",
     "notify_send": "notify-send",
 }
@@ -75,6 +77,7 @@ def tools(config: dict[str, Any] | None = None) -> dict[str, str | None]:
         "mangohud": resolve_tool("mangohud", config),
         "gamemoderun": resolve_tool("gamemoderun", config),
         "gamescope": resolve_tool("gamescope", config),
+        "kwin": resolve_tool("kwin", config),
         "systemd_inhibit": resolve_tool("systemd_inhibit", config),
         "notify_send": resolve_tool("notify_send", config),
         "icoextract": "available" if icons.available() else None,

@@ -38,6 +38,8 @@ const emptyGame: GameInput = {
   gamemode: false,
   gamescope: false,
   gamescope_args: "",
+  kwin: false,
+  kwin_args: "",
   mangohud_args: "",
   no_sleep: false,
   sdl: false,
@@ -200,12 +202,14 @@ function ToolToggle({
   available,
   hint,
   selected,
+  blocked,
   onChange,
 }: {
   label: string;
   available: boolean;
   hint: string;
   selected: boolean;
+  blocked?: string;
   onChange: (value: boolean) => void;
 }) {
   const {t} = useT();
@@ -213,13 +217,15 @@ function ToolToggle({
     <Toggle
       label={label}
       description={
-        available
-          ? selected
-            ? t("Enabled for this game", "已为此游戏启用")
-            : t("Available — switch on to use it", "可用 — 打开即可使用")
-          : hint
+        blocked
+          ? blocked
+          : available
+            ? selected
+              ? t("Enabled for this game", "已为此游戏启用")
+              : t("Available — switch on to use it", "可用 — 打开即可使用")
+            : hint
       }
-      disabled={!available}
+      disabled={!available || Boolean(blocked)}
       selected={selected && available}
       onChange={onChange}
     />
@@ -598,6 +604,12 @@ export function GameEditor({
                 </Tabs.Panel>
 
                 <Tabs.Panel className="flex flex-col gap-2 pt-4" id="advanced">
+                  <p className="text-xs leading-snug text-muted">
+                    {t(
+                      "Gamescope and KWin are mutually exclusive: both want to compose the game's windows, so only one of them can be enabled. Gamescope cannot show always-on-top overlays; KWin can.",
+                      "Gamescope 与 KWin 互斥：两者都要合成游戏窗口，同一时间只能启用一个。Gamescope 无法显示置顶浮层（如卡牌记录器），KWin 可以。",
+                    )}
+                  </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <ToolToggle
                       label="MangoHud"
@@ -632,6 +644,14 @@ export function GameEditor({
                       label="Gamescope"
                       available={Boolean(dependencies?.optional.gamescope?.available)}
                       hint={t("Gamescope is not installed", "Gamescope 未安装")}
+                      blocked={
+                        form.kwin
+                          ? t(
+                              "Mutually exclusive with KWin — turn KWin off first",
+                              "与 KWin 互斥 — 请先关闭 KWin",
+                            )
+                          : undefined
+                      }
                       selected={Boolean(form.gamescope)}
                       onChange={(value) => set("gamescope", value)}
                     />
@@ -649,6 +669,39 @@ export function GameEditor({
                         "启用 Gamescope 后才能配置参数。",
                       )}
                       onChange={(value) => set("gamescope_args", value)}
+                    />
+                    <ToolToggle
+                      label={t("KWin (nested)", "KWin（嵌套）")}
+                      available={Boolean(dependencies?.optional.kwin?.available)}
+                      hint={t(
+                        "kwin_wayland was not found. Install KWin or set its path in Settings.",
+                        "未找到 kwin_wayland。请安装 KWin，或在设置里指定路径。",
+                      )}
+                      blocked={
+                        form.gamescope
+                          ? t(
+                              "Mutually exclusive with Gamescope — turn Gamescope off first",
+                              "与 Gamescope 互斥 — 请先关闭 Gamescope",
+                            )
+                          : undefined
+                      }
+                      selected={Boolean(form.kwin)}
+                      onChange={(value) => set("kwin", value)}
+                    />
+                    <ToolArguments
+                      label={t("KWin arguments", "KWin 参数")}
+                      description={t(
+                        "Defaults to --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts.",
+                        "留空时使用 --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts。",
+                      )}
+                      value={form.kwin_args ?? ""}
+                      placeholder="--width 2560 --height 1440"
+                      disabled={!form.kwin}
+                      disabledHint={t(
+                        "Enable KWin to configure its arguments.",
+                        "启用 KWin 后才能配置参数。",
+                      )}
+                      onChange={(value) => set("kwin_args", value)}
                     />
                     <ToolToggle
                       label={t("Prevent sleep", "阻止休眠")}

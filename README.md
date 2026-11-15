@@ -22,11 +22,20 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
      reads the shortcuts the installer created (`.lnk` → target inside the prefix) and offers the
      installed program. If nothing is found you can pick the executable manually, start from a
      prefix scan, or re-run the installer.
-  4. Add a cover, toggle MangoHud / GameMode / Gamescope / sleep inhibition / Wayland / WOW64, create.
+  4. Add a cover, toggle MangoHud / GameMode / Gamescope *or* KWin / sleep inhibition / Wayland /
+     WOW64, create.
 - **Add existing game** — attach an executable to a Wine prefix that already exists (validated by `drive_c`).
-- **Per-game tool arguments** — Gamescope and MangoHud can each be configured per game
-  (gamescope defaults to `-f` when left empty); the switches stay disabled with an inline
-  hint when the tool is missing.
+- **Per-game tool arguments** — Gamescope, KWin and MangoHud can each be configured per game
+  (gamescope defaults to `-f`, KWin to `--width 1600 --height 900 --xwayland --no-lockscreen
+  --no-global-shortcuts` when left empty); the switches stay disabled with an inline hint when the
+  tool is missing.
+- **Gamescope or KWin, never both** — both are nested compositors that own the game's windows, so
+  the launcher refuses the combination (`Gamescope and KWin both compose the game session...`) and
+  the UI disables the other switch with a note. KWin exists because gamescope composites a single
+  window: always-on-top overlays (deck trackers, chat clients) cannot float above the game, while
+  KWin honours `_NET_WM_STATE_ABOVE`. KWin is started as
+  `kwin_wayland … --exit-with-session <rest of the chain>`, nested in the current session, adding
+  `--x11-display $DISPLAY` only when there is no Wayland display to nest into.
 - **Environment variables and game arguments are separate** — the Launch tab has a
   multi-line `KEY=VALUE` environment editor and a plain game-argument list. Old games that
   stored env assignments inside their arguments are migrated automatically.
@@ -184,6 +193,7 @@ Zed Launcher splits runtime dependencies into required and optional ones.
 | optional | MangoHud | per-game switch disabled with "MangoHud is not installed" |
 | optional | GameMode | per-game switch disabled |
 | optional | Gamescope | per-game switch disabled |
+| optional | `kwin_wayland` (KWin) | per-game KWin switch disabled; path can be set in Settings |
 | optional | `systemd-inhibit` | "Prevent sleep" switch disabled |
 | optional | `notify-send` | desktop notification switch disabled with an inline hint |
 | optional | `icoextract` | icon extraction button reports that it is unavailable |
@@ -362,7 +372,7 @@ Data model:
   process is still the one it started.
 - Settings hold `language`, `notifications`, `tray`, `backup_schedule`, `steamgriddb_api_key`,
   `proton_log` and `tool_paths` (explicit binary overrides) alongside the runtime paths.
-- Tool arguments (Gamescope, MangoHud) live on the game row, next to `env` and `launch_args`.
+- Tool arguments (Gamescope, KWin, MangoHud) live on the game row, next to `env` and `launch_args`.
 
 Launch flow:
 

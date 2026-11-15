@@ -22,6 +22,7 @@ def test_tools_shape() -> None:
         "mangohud",
         "gamemoderun",
         "gamescope",
+        "kwin",
         "systemd_inhibit",
         "notify_send",
         "icoextract",

@@ -792,3 +792,15 @@ def test_mount_dirs_must_be_existing_absolute_directories(
     )
     assert missing.status_code == 400
     assert "does not exist" in missing.json()["detail"]
+
+
+def test_kwin_settings_round_trip(client: TestClient, executable: Path) -> None:
+    game = _create(client, executable)
+    assert game["kwin"] is False
+    assert game["kwin_args"] == ""
+
+    patched = client.patch(
+        f"/api/v1/games/{game['id']}", json={"kwin": True, "kwin_args": "--width 2560"}
+    ).json()
+    assert patched["kwin"] is True
+    assert patched["kwin_args"] == "--width 2560"

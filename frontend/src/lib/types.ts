@@ -18,6 +18,8 @@ export interface Game {
   gamemode: boolean;
   gamescope: boolean;
   gamescope_args: string;
+  kwin: boolean;
+  kwin_args: string;
   mangohud_args: string;
   no_sleep: boolean;
   sdl: boolean;
@@ -82,6 +84,7 @@ export interface Tools {
   mangohud: string | null;
   gamemoderun: string | null;
   gamescope: string | null;
+  kwin: string | null;
   systemd_inhibit: string | null;
   notify_send: string | null;
   icoextract: string | null;

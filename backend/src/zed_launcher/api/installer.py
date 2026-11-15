@@ -78,6 +78,7 @@ async def start_install(payload: InstallerRunRequest, request: Request) -> dict:
         "mangohud": False,
         "gamemode": False,
         "gamescope": False,
+        "kwin": False,
         "no_sleep": False,
         "sdl": False,
         "wayland": False,
