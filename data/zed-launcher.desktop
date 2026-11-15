@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Zed Launcher
+Comment=Launch Windows and Linux games with Proton and umu-launcher
+Exec=zed-launcher
+Icon=zed-launcher
+Terminal=false
+Categories=Game;
+StartupWMClass=zed-launcher
