@@ -78,6 +78,14 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   `xdgdesktopportal`/KDE theme plugin segfaults inside `kwin_wayland` before it opens a window, and
   `QT_FORCE_STDERR_LOGGING=1`, because kwin otherwise logs to the journal and the run log stays
   empty.
+
+  `--width`/`--height` are **logical** pixels and `--fullscreen 1` wins over them: a fullscreen
+  nested KWin takes the size of the host output, and the X11 screen a game sees is the window size
+  multiplied by the scale kwin derives from the session. Measured on a 3840×2160 session at 200 %:
+  `--width 1000 --height 700` gives a 1000×700 window and a 2000×1400 X screen (`xdpyinfo`), while
+  `--width 1920 --height 1080` fills the whole 4K screen and the game gets 3840×2160. `--scale`
+  does not change that (a fresh nested `kwinrc` gets `[Xwayland] Scale=2` from kwin itself), so ask
+  for half the resolution you want the game to render at on such a session.
 - **Environment variables and game arguments are separate** — the Launch tab has a
   multi-line `KEY=VALUE` environment editor and a plain game-argument list. Old games that
   stored env assignments inside their arguments are migrated automatically.
