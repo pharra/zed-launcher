@@ -106,7 +106,7 @@ class RunManager:
         record = store.create_run(game["id"], log_path, status="starting")
         run_id = record["id"]
 
-        env = game_env(plan.env)
+        env = game_env(plan.env, drop_prefixes=plan.drop_env_prefixes)
         env[processes.RUN_MARKER] = run_id
 
         early: list[str] = []
@@ -285,7 +285,7 @@ class RunManager:
                 language=config.get("language"),
             )
         if plan.post_launch:
-            env = game_env(plan.env)
+            env = game_env(plan.env, drop_prefixes=plan.drop_env_prefixes)
             env.update(plan.env)
             with contextlib.suppress(Exception):
                 post = await asyncio.create_subprocess_shell(

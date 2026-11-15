@@ -421,3 +421,28 @@ def test_a_reg_file_run_as_exe_is_imported(
     plan = _prefix_tool_plan(proton_dir, umu_run, kind="exe", target=str(reg))
     assert plan.argv[1].endswith("regedit.exe") or plan.argv[1] == "regedit"
     assert plan.argv[2] == "/S"
+
+
+def test_tool_plan_defaults_to_c_locale(proton_dir: Path, umu_run: Path) -> None:
+    plan = _prefix_tool_plan(proton_dir, umu_run, kind="winecfg")
+    # Otherwise Proton generates locales inside the container on every run.
+    assert plan.env["LANG"] == "C"
+    assert plan.env["LC_ALL"] == "C"
+    assert plan.env["WINEPREFIX"] == "/tmp/prefix"
+
+
+def test_tool_plan_env_overrides_the_defaults(proton_dir: Path, umu_run: Path) -> None:
+    plan = _prefix_tool_plan(
+        proton_dir,
+        umu_run,
+        kind="winecfg",
+        env="LANG=zh_CN.UTF-8\nSTEAM_COMPAT_APP_ID=42\n# comment ignored",
+    )
+    assert plan.env["LANG"] == "zh_CN.UTF-8"
+    assert plan.env["STEAM_COMPAT_APP_ID"] == "42"
+    assert plan.env["LC_ALL"] == "C"
+
+
+def test_tool_plan_rejects_a_broken_env_line(proton_dir: Path, umu_run: Path) -> None:
+    with pytest.raises(PlanError, match="Invalid environment variable"):
+        _prefix_tool_plan(proton_dir, umu_run, kind="winecfg", env="LANG")

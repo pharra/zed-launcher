@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -102,11 +102,17 @@ def game_path(parent: Mapping[str, str]) -> str:
 def game_env(
     overrides: Mapping[str, str] | None = None,
     parent: Mapping[str, str] | None = None,
+    drop_prefixes: Iterable[str] = (),
 ) -> dict[str, str]:
     """Build the environment for umu-run, the game and any extra program."""
 
     source = os.environ if parent is None else parent
-    env = {key: value for key, value in source.items() if _wanted(key)}
+    dropped = tuple(drop_prefixes)
+    env = {
+        key: value
+        for key, value in source.items()
+        if _wanted(key) and not key.startswith(dropped)
+    }
     env["PATH"] = game_path(source)
     env.update({str(key): str(value) for key, value in (overrides or {}).items()})
     return env

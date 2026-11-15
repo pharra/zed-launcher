@@ -146,3 +146,4 @@ class PrefixToolRequest(BaseModel):
     proton_path: str = ""
     target: str = ""
     args: str = ""
+    env: str = ""

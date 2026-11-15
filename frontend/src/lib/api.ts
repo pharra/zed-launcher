@@ -201,6 +201,7 @@ export const api = {
     proton_path?: string;
     target?: string;
     args?: string;
+    env?: string;
   }) =>
     request<{run_id: string; snapshot: RunSnapshot; prefix_path: string}>(
       "/api/v1/prefixes/run",

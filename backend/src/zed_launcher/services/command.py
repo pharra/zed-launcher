@@ -32,6 +32,7 @@ class LaunchPlan:
     notes: list[str] = field(default_factory=list)
     programs_before: list[ProgramRun] = field(default_factory=list)
     programs_after: list[ProgramRun] = field(default_factory=list)
+    drop_env_prefixes: tuple[str, ...] = ()
 
 
 GAME_ENTRY = {"kind": "game"}
@@ -280,6 +281,10 @@ def to_windows_path(path: str) -> str:
     return "Z:" + str(Path(path).expanduser()).replace("/", "\\")
 
 
+# C keeps Proton from generating locales inside the container on every run.
+TOOL_DEFAULT_ENV = {"LANG": "C", "LC_ALL": "C"}
+
+
 def build_tool_plan(
     *,
     kind: str,
@@ -289,6 +294,7 @@ def build_tool_plan(
     target: str = "",
     args: str = "",
     log_dir: str = "",
+    env: str = "",
 ) -> LaunchPlan:
     """Run a maintenance tool inside a prefix (winecfg, regedit, winetricks, exe)."""
 
@@ -300,15 +306,19 @@ def build_tool_plan(
         raise PlanError("This prefix is missing.")
 
     extra = shlex.split(args or "")
-    env = {
-        "WINEPREFIX": prefix_path,
-        "PROTONPATH": proton_path,
-        "GAMEID": "zed-prefix-tools",
-        "STORE": "none",
-        "PROTON_LOG": "1",
-    }
+    tool_env: dict[str, str] = dict(TOOL_DEFAULT_ENV)
+    tool_env.update(parse_env(env))
+    tool_env.update(
+        {
+            "WINEPREFIX": prefix_path,
+            "PROTONPATH": proton_path,
+            "GAMEID": "zed-prefix-tools",
+            "STORE": "none",
+            "PROTON_LOG": "1",
+        }
+    )
     if log_dir:
-        env["PROTON_LOG_DIR"] = log_dir
+        tool_env["PROTON_LOG_DIR"] = log_dir
 
     def builtin(name: str) -> str:
         return wine_program(proton_path, name) or name
@@ -339,7 +349,10 @@ def build_tool_plan(
     cwd = str(Path(target).parent) if target and Path(target).parent.is_dir() else None
     return LaunchPlan(
         argv=argv,
-        env=env,
+        env=tool_env,
+        # The session locale would make pressure-vessel regenerate en_US/zh_CN inside
+        # the container on every tool run; LANG/LC_ALL from the editor still apply.
+        drop_env_prefixes=("LC_",),
         cwd=cwd,
         description=" ".join(shlex.quote(part) for part in argv),
     )

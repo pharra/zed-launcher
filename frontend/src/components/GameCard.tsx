@@ -3,7 +3,16 @@ import {Button, Card, Chip, Tooltip} from "@heroui/react";
 import {artworkUrl, formatPlaytime} from "../lib/api";
 import {useT} from "../lib/i18n";
 import type {Game} from "../lib/types";
-import {GamepadIcon, LinkIcon, PencilIcon, PlayIcon, StopIcon, TerminalIcon, TrashIcon, UnlinkIcon} from "./icons";
+import {
+  GamepadIcon,
+  LinkIcon,
+  PencilIcon,
+  PlayIcon,
+  StopIcon,
+  TerminalIcon,
+  TrashIcon,
+  UnlinkIcon,
+} from "./icons";
 
 interface GameCardProps {
   game: Game;
@@ -91,7 +100,7 @@ export function GameCard({
             {game.title}
           </button>
         </Card.Title>
-        <Card.Description className="flex items-center gap-2 text-[11px]">
+        <Card.Description className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
           <Chip size="sm" variant="soft" className="h-5 px-2 text-[10px]">
             {protonLabel}
           </Chip>
@@ -99,75 +108,108 @@ export function GameCard({
         </Card.Description>
       </Card.Header>
 
-      <Card.Footer className="gap-1 px-1 pb-1 pt-1">
-        {running ? (
-          <>
-            <Button size="sm" variant="secondary" className="flex-1" onPress={() => onShowLog(game)}>
-              <TerminalIcon className="size-3.5" />
-              {t("Log", "日志")}
+      <Card.Footer className="flex-col items-stretch gap-1 px-1 pb-1 pt-1">
+        <div className="flex min-w-0 gap-1">
+          {running ? (
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="min-w-0 flex-1 truncate px-2"
+                onPress={() => onShowLog(game)}
+              >
+                <TerminalIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{t("Log", "日志")}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="danger-soft"
+                className="min-w-0 flex-1 truncate px-2"
+                aria-label={t("Stop the game", "终止游戏")}
+                onPress={() => onStop(game)}
+              >
+                <StopIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{t("Stop", "终止")}</span>
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" className="min-w-0 flex-1 truncate px-2" onPress={() => onPlay(game)}>
+              <PlayIcon className="size-3.5 shrink-0" />
+              <span className="truncate">{t("Play", "开始游戏")}</span>
             </Button>
-            <Button size="sm" variant="danger-soft" className="flex-1" onPress={() => onStop(game)}>
-              <StopIcon className="size-3.5" />
-              {t("Stop", "终止游戏")}
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" className="flex-1" onPress={() => onPlay(game)}>
-            <PlayIcon className="size-3.5" />
-            {t("Play", "开始游戏")}
-          </Button>
-        )}
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button isIconOnly size="sm" variant="secondary" aria-label={t("Edit", "编辑")} onPress={() => onEdit(game)}>
-              <PencilIcon className="size-4" />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t("Edit", "编辑")}</Tooltip.Content>
-        </Tooltip>
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size="sm"
-              variant="secondary"
-              aria-label={
-                game.shortcut
-                  ? t("Remove shortcut", "删除快捷方式")
-                  : t("Create shortcut", "创建快捷方式")
-              }
-              onPress={() => onShortcut(game)}
-            >
-              {game.shortcut ? <UnlinkIcon className="size-4" /> : <LinkIcon className="size-4" />}
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>
-            {game.shortcut
-              ? t("Remove the application shortcut", "删除已创建的应用快捷方式")
-              : t("Create an application shortcut", "创建应用快捷方式")}
-          </Tooltip.Content>
-        </Tooltip>
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size="sm"
-              variant="secondary"
-              aria-label={t("Remove", "移除")}
-              onPress={() => onDelete(game)}
-            >
-              <TrashIcon className="size-4" />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>{t("Remove", "移除")}</Tooltip.Content>
-        </Tooltip>
+          )}
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="secondary"
+                aria-label={t("Prefix tools", "Prefix 工具")}
+                onPress={() => onTools(game)}
+              >
+                <GamepadIcon className="size-4" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {t("Prefix tools — winecfg, regedit, winetricks", "Prefix 工具 — winecfg、regedit、winetricks")}
+            </Tooltip.Content>
+          </Tooltip>
+        </div>
+
+        {/* Below the primary actions, so a running game never squeezes them out. */}
+        <div className="flex min-w-0 gap-1">
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button isIconOnly size="sm" variant="ghost" aria-label={t("Edit", "编辑")} onPress={() => onEdit(game)}>
+                <PencilIcon className="size-4" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t("Edit", "编辑")}</Tooltip.Content>
+          </Tooltip>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                aria-label={
+                  game.shortcut
+                    ? t("Remove shortcut", "删除快捷方式")
+                    : t("Create shortcut", "创建快捷方式")
+                }
+                onPress={() => onShortcut(game)}
+              >
+                {game.shortcut ? <UnlinkIcon className="size-4" /> : <LinkIcon className="size-4" />}
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {game.shortcut
+                ? t("Remove the application shortcut", "删除已创建的应用快捷方式")
+                : t("Create an application shortcut", "创建应用快捷方式")}
+            </Tooltip.Content>
+          </Tooltip>
+          <Tooltip>
+            <Tooltip.Trigger>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                aria-label={t("Remove", "移除")}
+                onPress={() => onDelete(game)}
+              >
+                <TrashIcon className="size-4" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content>{t("Remove", "移除")}</Tooltip.Content>
+          </Tooltip>
+        </div>
       </Card.Footer>
 
       <button
         type="button"
-        className="flex items-center gap-1 rounded-lg px-2 pb-1 pt-0.5 text-[10px] text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
+        className="flex min-w-0 items-center gap-1 rounded-lg px-2 pb-1 pt-0.5 text-[10px] text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
         onClick={() => onTools(game)}
-        title={`${game.prefix_path} — prefix tools`}
+        title={`${game.prefix_path} — ${t("open prefix tools", "打开 prefix 工具")}`}
       >
         <GamepadIcon className="size-3 shrink-0" />
         <span className="truncate">{prefixName}</span>

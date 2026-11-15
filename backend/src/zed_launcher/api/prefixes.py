@@ -115,6 +115,7 @@ async def run_tool(payload: PrefixToolRequest, request: Request) -> dict:
             target=payload.target,
             args=payload.args,
             log_dir=str(log_dir()),
+            env=payload.env,
         )
     except PlanError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

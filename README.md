@@ -30,6 +30,11 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
 - **Environment variables and game arguments are separate** — the Launch tab has a
   multi-line `KEY=VALUE` environment editor and a plain game-argument list. Old games that
   stored env assignments inside their arguments are migrated automatically.
+- **Prefix tools** have their own environment editor (one `KEY=VALUE` per line, remembered for the
+  session, default `LANG=C`). Tool runs deliberately drop the session's `LC_*` variables: otherwise
+  pressure-vessel regenerates your desktop locale inside the container on every single run. The
+  variables reach the container, as `setlocale "xx_YY.UTF-8": No such file or directory` in the tool
+  log proves.
 - **Registry import** — picking a `.reg` file (or the *Regedit* tool) runs Proton's own
   `regedit.exe /S` with the file converted to a DOS path (`Z:\home\…`). Passing a bare
   `regedit` made umu warn *Executable not found* and fall back to the prefix copy, and the

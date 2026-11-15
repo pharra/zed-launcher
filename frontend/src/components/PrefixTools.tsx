@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from "react";
-import {Button, Chip, Input, Label, ListBox, Modal, ScrollShadow, Select, toast} from "@heroui/react";
+import {Button, Chip, Input, Label, ListBox, Modal, ScrollShadow, Select, TextArea, toast} from "@heroui/react";
 
 import {api, formatSize, runEventsUrl} from "../lib/api";
 import {useT} from "../lib/i18n";
@@ -14,6 +14,10 @@ interface PrefixToolsProps {
   onClose: () => void;
 }
 
+// Containers regenerate locales on every run with a real locale; C avoids that.
+const DEFAULT_TOOL_ENV = "LANG=C";
+const TOOL_ENV_KEY = "zed.toolEnv";
+
 const toolText: Record<PrefixToolKind, [string, string, string, string]> = {
   exe: ["Run a file", "运行文件", "Run any executable or .reg file inside the prefix", "在 prefix 中运行任意可执行文件或 .reg 文件"],
   winecfg: ["Winecfg", "Winecfg", "Open the Wine configuration panel", "打开 Wine 配置面板"],
@@ -27,6 +31,7 @@ export function PrefixTools({game, protons, onClose}: PrefixToolsProps) {
   const [protonPath, setProtonPath] = useState("");
   const [target, setTarget] = useState("");
   const [args, setArgs] = useState("");
+  const [env, setEnv] = useState(() => localStorage.getItem(TOOL_ENV_KEY) ?? DEFAULT_TOOL_ENV);
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [lines, setLines] = useState<string[]>([]);
@@ -178,7 +183,9 @@ export function PrefixTools({game, protons, onClose}: PrefixToolsProps) {
         proton_path: protonPath,
         target: kind === "exe" || kind === "regedit" ? target : "",
         args,
+        env,
       });
+      localStorage.setItem(TOOL_ENV_KEY, env);
       setRunId(result.run_id);
       setStatus(result.snapshot.status);
       setLines(result.snapshot.lines ?? []);
@@ -343,6 +350,24 @@ export function PrefixTools({game, protons, onClose}: PrefixToolsProps) {
                   )}
                 </div>
               )}
+
+              <div className="flex flex-col gap-1.5">
+                <Label>{t("Environment variables", "环境变量")}</Label>
+                <TextArea
+                  aria-label={t("Environment variables", "环境变量")}
+                  rows={3}
+                  className="font-mono text-xs"
+                  placeholder={"LANG=C\nWINEDLLOVERRIDES=winemenubuilder.exe=d"}
+                  value={env}
+                  onChange={(event) => setEnv(event.target.value)}
+                />
+                <span className="text-xs text-muted">
+                  {t(
+                    "One KEY=VALUE per line, passed to the tool only. The tool ignores the session's LC_* settings, so the container does not regenerate your desktop locale on every run.",
+                    "每行一个 KEY=VALUE，只对本次工具生效。工具不会继承会话的 LC_* 设置，容器因此不必按你的桌面语言重新生成 locale。",
+                  )}
+                </span>
+              </div>
 
               <div className="flex flex-wrap gap-2">
                 <Button onPress={() => void run()}>{t("Run", "运行")}</Button>

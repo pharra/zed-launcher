@@ -75,7 +75,7 @@ def run_headless(game_id: str, logs: bool = True) -> int:
 
     log_path = log_dir() / f"{game_id}-{int(time.time())}.log"
     record = store.create_run(game_id, str(log_path), status="starting")
-    env = game_env(plan.env)
+    env = game_env(plan.env, drop_prefixes=plan.drop_env_prefixes)
     env[processes.RUN_MARKER] = record["id"]
     if plan.env.get("WINEPREFIX"):
         Path(plan.env["WINEPREFIX"]).mkdir(parents=True, exist_ok=True)
