@@ -306,7 +306,9 @@ def test_wrappers_stay_before_umu_run(executable, umu_run, proton_dir, tmp_path)
     assert plan.argv[-1] == str(executable)
 
 
-def test_programs_are_split_around_the_game(executable, umu_run, proton_dir, tmp_path) -> None:
+def test_every_program_runs_inside_one_umu_invocation(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
     first = tmp_path / "trainer.exe"
     last = tmp_path / "overlay.exe"
     first.write_bytes(b"")
@@ -322,10 +324,20 @@ def test_programs_are_split_around_the_game(executable, umu_run, proton_dir, tmp
             {"kind": "program", "path": str(last), "args": "", "delay": 5},
         ],
     )
-    assert [run.path for run in plan.programs_before] == [str(first)]
-    assert [run.path for run in plan.programs_after] == [str(last)]
-    assert plan.programs_before[0].argv == [str(umu_run), str(first), "-a", "1"]
-    assert plan.programs_after[0].delay == 5
+    # One umu-run call for the whole run, so every program shares the container.
+    assert plan.argv.count(str(umu_run)) == 1
+    assert plan.argv[1].endswith("cmd.exe") or plan.argv[1] == "cmd"
+    assert plan.argv[2] == "/c"
+    assert plan.argv[3] == "__ZED_REPLACE_ME__"
+    assert plan.order == [str(first), str(executable), str(last)]
+
+    script = plan.script
+    assert script.startswith("@echo off\r\n")
+    # extras first, then the game with /wait so cmd keeps the session alive
+    assert script.index("trainer.exe") < script.index(executable.name)
+    assert 'start "" /wait' in script
+    assert "ping -n 6 127.0.0.1" in script  # the 5s delay of the program below the game
+    assert script.rstrip().endswith("exit /b %ZED_GAME_EXIT%")
 
 
 def test_game_entry_is_appended_when_missing(executable, umu_run, proton_dir, tmp_path) -> None:
@@ -338,8 +350,13 @@ def test_game_entry_is_appended_when_missing(executable, umu_run, proton_dir, tm
         tmp_path,
         extra_programs=[{"kind": "program", "path": str(extra)}],
     )
-    assert [run.path for run in plan.programs_before] == [str(extra)]
-    assert plan.programs_after == []
+    assert plan.order == [str(extra), str(executable)]
+
+
+def test_no_script_without_extra_programs(executable, umu_run, proton_dir, tmp_path) -> None:
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path)
+    assert plan.script == ""
+    assert plan.argv[1] == str(executable)
 
 
 def test_missing_extra_program_is_skipped_with_note(executable, umu_run, proton_dir, tmp_path) -> None:
@@ -350,7 +367,7 @@ def test_missing_extra_program_is_skipped_with_note(executable, umu_run, proton_
         tmp_path,
         extra_programs=[{"kind": "program", "path": str(tmp_path / "gone.exe")}],
     )
-    assert plan.programs_before == []
+    assert plan.script == ""
     assert any("gone.exe" in note for note in plan.notes)
     assert plan.argv[-1].endswith(".exe")
 
@@ -446,3 +463,31 @@ def test_tool_plan_env_overrides_the_defaults(proton_dir: Path, umu_run: Path) -
 def test_tool_plan_rejects_a_broken_env_line(proton_dir: Path, umu_run: Path) -> None:
     with pytest.raises(PlanError, match="Invalid environment variable"):
         _prefix_tool_plan(proton_dir, umu_run, kind="winecfg", env="LANG")
+
+
+def test_windows_backslashes_survive_argument_splitting() -> None:
+    from zed_launcher.services.command import split_args
+
+    # shlex in POSIX mode would turn C:\Games into C:Games and break the game.
+    assert split_args(r"-path C:\Games\Foo") == ["-path", r"C:\Games\Foo"]
+    assert split_args(r'-name "Two Words"') == ["-name", "Two Words"]
+    assert split_args("/S Z:\\home\\wf\\a.reg") == ["/S", "Z:\\home\\wf\\a.reg"]
+    assert split_args("") == []
+
+
+def test_script_keeps_extra_program_arguments(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    extra = tmp_path / "trainer.exe"
+    extra.write_bytes(b"")
+    plan = _tool_plan(
+        executable,
+        umu_run,
+        proton_dir,
+        tmp_path,
+        extra_programs=[
+            {"kind": "program", "path": str(extra), "args": r"--cfg C:\x\y.ini"},
+            {"kind": "game"},
+        ],
+    )
+    assert r"--cfg C:\x\y.ini" in plan.script

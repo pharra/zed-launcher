@@ -68,6 +68,33 @@ def prune_proton_logs(keep: int = 20) -> list[Path]:
     return removed
 
 
+def script_dir() -> Path:
+    """Batch files that start a whole run inside one umu-run invocation."""
+
+    return state_dir() / "scripts"
+
+
+def prune_scripts(keep: int = 200) -> list[Path]:
+    """Drop launch scripts of old runs; they are only useful while debugging."""
+
+    directory = script_dir()
+    if not directory.is_dir():
+        return []
+    scripts = sorted(
+        (path for path in directory.glob("*.bat") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    removed: list[Path] = []
+    for path in scripts[keep:]:
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+    return removed
+
+
 def artwork_dir() -> Path:
     return data_dir() / "artwork"
 

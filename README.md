@@ -90,12 +90,26 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   from the editor are dropped, and `PATH` is the plain host path instead of the launcher's.
 - **Proton's own log is opt-in** — Settings → *Verbose Proton log* also writes `steam-*.log` next to
   the run log; the last 20 are kept and older ones are pruned at startup.
-- **Extra programs** — the Programs tab lists the game itself (read-only path) together with any
-  number of extra executables. Rows are reordered by dragging (or with the arrows) and started in
-  that order: everything above the game row runs first, everything below runs after the game has
-  started, each with an optional delay in seconds and its own arguments. Extras go through the
-  same `umu-run` and prefix as the game, run detached, and never block or kill the game; a missing
-  file is skipped and reported in the log.
+- **Extra programs run in one container** — the Programs tab lists the game itself (read-only path)
+  plus any number of extra executables, reorderable by dragging (or with the arrows). The launcher
+  writes a `.bat` that starts every row in order and calls `umu-run` **once** for the whole run:
+
+  ```bat
+  @echo off
+  cd /d "z:\path\to\game"
+  ping -n 4 127.0.0.1 >nul                 :: 3s delay of this row
+  start "" "z:\…\trainer.exe" --cfg …    :: before the game, keeps running
+  start "" /wait "z:\…\game.exe" -flag    :: the game; /wait keeps the session alive
+  set ZED_GAME_EXIT=%ERRORLEVEL%
+  start "" /wait "z:\…\after.exe"         :: after the game exits
+  exit /b %ZED_GAME_EXIT%
+  ```
+
+  One invocation means one pressure-vessel container and one wineserver, so trainers and overlays
+  share the game's wine session — separate `umu-run` calls would each get their own `/tmp` and
+  therefore their own `wineserver`. Delays use `ping -n` (the only sleep a bare `cmd` offers), the
+  game's exit code is propagated, and a missing file is dropped from the script with a note in the
+  log. Scripts live in `$XDG_STATE_HOME/zed-launcher/scripts/` and the last 200 are kept.
 - **Live output** — stream stdout/stderr over WebSocket, keep a log file, stop the whole
   process group, track playtime.
 - **Process ownership** — every launch exports `ZED_RUN_ID=<run id>`, so the launcher can find
@@ -352,6 +366,7 @@ Launch flow:
 | `$XDG_DATA_HOME/zed-launcher/backups/` | default backup folder |
 | `$XDG_DATA_HOME/zed-launcher/protons/` | Proton builds downloaded in-app |
 | `$XDG_STATE_HOME/zed-launcher/logs/` | per-run logs (plus Proton's `steam-*.log` when verbose logging is on) |
+| `$XDG_STATE_HOME/zed-launcher/scripts/` | generated `.bat` of the last runs (launch order, deleted after 200) |
 | `~/Games/Zed` | default prefix folder |
 
 ## Roadmap

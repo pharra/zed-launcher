@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shlex
 import signal
 import sys
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .. import store
 from ..config import load_config
-from ..paths import ensure_dirs, log_dir
+from ..paths import ensure_dirs, log_dir, script_dir
 from . import diagnose, notify, processes
-from .command import LaunchPlan, ProgramRun
+from .command import SCRIPT_TOKEN, LaunchPlan, to_windows_path
 from .gameenv import game_env
 
 # How long to keep reading the game's pipe after the process itself exited.
@@ -116,25 +118,7 @@ class RunManager:
             with contextlib.suppress(OSError), open(log_path, "a", encoding="utf-8") as handle:
                 handle.write(line + "\n")
 
-        async def start_program(program: ProgramRun) -> None:
-            if program.delay:
-                await asyncio.sleep(program.delay)
-            try:
-                await asyncio.create_subprocess_exec(
-                    *program.argv,
-                    cwd=plan.cwd,
-                    env=env,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-            except OSError as error:
-                note(f"# could not start {program.path}: {error}")
-                return
-            note(f"# started extra program: {program.path}")
-
-        for program in plan.programs_before:
-            await start_program(program)
+        argv = self._prepare_script(plan, run_id, note)
 
         if plan.pre_launch:
             pre = await asyncio.create_subprocess_shell(
@@ -149,7 +133,7 @@ class RunManager:
 
         try:
             process = await asyncio.create_subprocess_exec(
-                *plan.argv,
+                *argv,
                 cwd=plan.cwd,
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
@@ -165,7 +149,7 @@ class RunManager:
             game_id=game["id"],
             title=game.get("title", ""),
             status="running",
-            argv=plan.argv,
+            argv=argv,
             process=process,
             started_monotonic=time.monotonic(),
             log_path=log_path,
@@ -178,41 +162,38 @@ class RunManager:
         store.set_run_pid(run_id, process.pid, processes.starttime_of(process.pid))
         await self._spawn_watcher(run_id, game["id"], process.pid)
         self._broadcast(run, {"type": "status", "status": "running", "pid": process.pid})
-        self._append(run, f"$ {plan.description}")
+        self._append(run, "$ " + " ".join(shlex.quote(part) for part in argv))
         for note in plan.notes:
             self._append(run, f"# {note}")
 
         run.pump_task = asyncio.create_task(self._pump(run))
         run.wait_task = asyncio.create_task(self._wait(run, plan))
-        for program in plan.programs_after:
-            self._spawn(self._start_program_later(run, program, env, plan.cwd))
         return run
 
-    async def _start_program_later(
-        self, run: RunningGame, program: ProgramRun, env: dict[str, str], cwd: str | None
-    ) -> None:
-        if program.delay:
-            await asyncio.sleep(program.delay)
-        await self._start_program(run, program, env, cwd)
+    def _prepare_script(self, plan: LaunchPlan, run_id: str, note: Any) -> list[str]:
+        """Write the launch script and point the command line at it.
 
-    async def _start_program(
-        self, run: RunningGame, program: ProgramRun, env: dict[str, str], cwd: str | None
-    ) -> None:
-        """Extra programs run detached in the same prefix; failures never kill the game."""
+        All programs of a run share one umu-run invocation (and therefore one
+        pressure-vessel container): a batch file starts the extras around the game.
+        """
 
+        if not plan.script:
+            return list(plan.argv)
+
+        directory = script_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{run_id}.bat"
         try:
-            await asyncio.create_subprocess_exec(
-                *program.argv,
-                cwd=cwd,
-                env=env,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            path.write_text(plan.script, encoding="utf-8", newline="")
         except OSError as error:
-            self._append(run, f"# could not start {program.path}: {error}")
-            return
-        self._append(run, f"# started extra program: {program.path}")
+            note(f"# could not write the launch script: {error}")
+            return list(plan.argv)
+
+        note(f"# launch script: {path}")
+        if plan.order:
+            note("# order: " + " -> ".join(Path(part).name for part in plan.order))
+        windows = to_windows_path(str(path))
+        return [part.replace(SCRIPT_TOKEN, windows) for part in plan.argv]
 
     async def _spawn_watcher(self, run_id: str, game_id: str, pid: int) -> None:
         """Keep recording the run even if the launcher window is closed."""

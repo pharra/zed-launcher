@@ -13,15 +13,6 @@ class PlanError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ProgramRun:
-    """An extra program started around the game, in the same prefix."""
-
-    argv: list[str]
-    path: str
-    delay: int = 0
-
-
-@dataclass(frozen=True)
 class LaunchPlan:
     argv: list[str]
     env: dict[str, str] = field(default_factory=dict)
@@ -30,9 +21,11 @@ class LaunchPlan:
     post_launch: str = ""
     description: str = ""
     notes: list[str] = field(default_factory=list)
-    programs_before: list[ProgramRun] = field(default_factory=list)
-    programs_after: list[ProgramRun] = field(default_factory=list)
     drop_env_prefixes: tuple[str, ...] = ()
+    # Batch file that starts every program inside one umu-run/pressure-vessel.
+    script: str = ""
+    # Human-readable launch order, used in the log.
+    order: list[str] = field(default_factory=list)
 
 
 GAME_ENTRY = {"kind": "game"}
@@ -96,6 +89,23 @@ def umu_game_id(game_id: str) -> str:
 ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def split_args(value: str) -> list[str]:
+    """Split a typed argument line without eating Windows backslashes.
+
+    ``shlex.split`` in POSIX mode treats ``\\`` as an escape, so ``-path C:\\Games``
+    would reach wine as ``C:Games``. Quote-aware splitting keeps the argument intact.
+    """
+
+    lexer = shlex.shlex(value or "", posix=False)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens = list(lexer)
+    return [
+        token[1:-1] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else token
+        for token in tokens
+    ]
+
+
 def parse_env(value: str) -> dict[str, str]:
     """Read ``KEY=VALUE`` lines (one per line, ``export`` allowed, # comments skipped)."""
 
@@ -128,6 +138,63 @@ def legacy_launch_args(value: str) -> tuple[str, str]:
     return "\n".join(env_lines), " ".join(argv)
 
 
+SCRIPT_TOKEN = "__ZED_REPLACE_ME__"
+
+# `start ""` returns immediately; `start "" /wait` blocks until the program exits. The
+# game uses /wait so cmd stays alive for the whole session, which is what keeps the
+# single pressure-vessel container (and its wineserver) running for every program.
+def _win(path: str) -> str:
+    return 'z:' + str(path).replace("/", "\\")
+
+
+def _quote(argument: str) -> str:
+    return f'"{argument}"' if " " in argument else argument
+
+
+def build_launch_script(
+    game_path: str,
+    game_args: list[str],
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+    cwd: str,
+) -> tuple[str, list[str]]:
+    """A .bat that starts every program inside one wine session.
+
+    Returns the script and the launch order, so the log can show what will run.
+    """
+
+    lines = ["@echo off", f'cd /d "{_win(cwd)}"']
+    order: list[str] = []
+
+    def wait(seconds: int) -> None:
+        if seconds <= 0:
+            return
+        # ping is the only sleep available in a bare cmd, and -n counts one send too.
+        lines.append(f"ping -n {seconds + 1} 127.0.0.1 >nul")
+
+    for entry in before:
+        wait(int(entry.get("delay") or 0))
+        args = split_args(str(entry.get("args") or ""))
+        lines.append('start "" ' + " ".join([_quote(_win(entry["path"])), *map(_quote, args)]))
+        order.append(str(entry["path"]))
+
+    lines.append(
+        'start "" /wait '
+        + " ".join([_quote(_win(game_path)), *map(_quote, game_args)])
+    )
+    order.append(game_path)
+    lines.append("set ZED_GAME_EXIT=%ERRORLEVEL%")
+
+    for entry in after:
+        wait(int(entry.get("delay") or 0))
+        args = split_args(str(entry.get("args") or ""))
+        lines.append('start "" /wait ' + " ".join([_quote(_win(entry["path"])), *map(_quote, args)]))
+        order.append(str(entry["path"]))
+
+    lines.extend(["exit /b %ZED_GAME_EXIT%", ""])
+    return "\r\n".join(lines), order
+
+
 def build_plan(
     game: dict[str, Any],
     *,
@@ -151,7 +218,7 @@ def build_plan(
     if not prefix_path:
         raise PlanError("This game has no Wine prefix.")
 
-    game_args = shlex.split(str(game.get("args") or ""))
+    game_args = split_args(str(game.get("args") or ""))
     env_override = parse_env(str(game.get("env") or ""))
     legacy_env, legacy_argv = legacy_launch_args(str(game.get("launch_args") or ""))
 
@@ -214,38 +281,44 @@ def build_plan(
     sequence = normalize_programs(game.get("extra_programs"), path)
     before, after = split_programs(sequence)
 
-    def program_run(entry: dict[str, Any]) -> ProgramRun:
-        extra_args = shlex.split(str(entry.get("args") or ""))
-        return ProgramRun(
-            argv=[umu_run, str(entry["path"]), *extra_args],
-            path=str(entry["path"]),
-            delay=int(entry.get("delay") or 0),
-        )
-
-    programs_before = [program_run(entry) for entry in before]
-    programs_after = [program_run(entry) for entry in after]
     missing = [entry["path"] for entry in [*before, *after] if not Path(entry["path"]).is_file()]
     if missing:
         notes_extra.append(
             "These extra programs do not exist and were skipped: " + ", ".join(missing)
         )
-    programs_before = [run for run in programs_before if Path(run.path).is_file()]
-    programs_after = [run for run in programs_after if Path(run.path).is_file()]
+    before = [entry for entry in before if Path(entry["path"]).is_file()]
+    after = [entry for entry in after if Path(entry["path"]).is_file()]
 
-    argv = [*wrappers, umu_run, path, *game_args]
+    # Everything runs inside one umu-run call: a batch file starts the extras and then
+    # the game, so they share one pressure-vessel container and one wineserver. Separate
+    # umu-run calls would each get their own /tmp (and therefore their own wineserver).
+    script = ""
+    order: list[str] = []
+    if before or after:
+        script, order = build_launch_script(
+            path,
+            game_args,
+            before,
+            after,
+            str(game.get("working_dir") or "") or str(Path(path).parent),
+        )
+        cmd_exe = wine_program(proton_path, "cmd") or "cmd"
+        argv = [*wrappers, umu_run, cmd_exe, "/c", SCRIPT_TOKEN]
+    else:
+        argv = [*wrappers, umu_run, path, *game_args]
 
     cwd = str(game.get("working_dir") or "") or str(Path(path).parent)
 
     return LaunchPlan(
         argv=argv,
+        script=script,
+        order=order,
         env=env,
         cwd=cwd,
         pre_launch=str(game.get("pre_launch") or ""),
         post_launch=str(game.get("post_launch") or ""),
         description=" ".join(shlex.quote(part) for part in argv),
         notes=[*notes_extra, *(notes or [])],
-        programs_before=programs_before,
-        programs_after=programs_after,
     )
 
 
@@ -305,7 +378,7 @@ def build_tool_plan(
     if not prefix_path:
         raise PlanError("This prefix is missing.")
 
-    extra = shlex.split(args or "")
+    extra = split_args(args or "")
     tool_env: dict[str, str] = dict(TOOL_DEFAULT_ENV)
     tool_env.update(parse_env(env))
     tool_env.update(

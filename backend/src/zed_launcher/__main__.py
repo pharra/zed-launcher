@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import threading
@@ -13,9 +14,9 @@ from pathlib import Path
 
 from . import __version__, store
 from .config import load_config
-from .paths import ensure_dirs, log_dir, prune_proton_logs
+from .paths import ensure_dirs, log_dir, prune_proton_logs, prune_scripts, script_dir
 from .services import prefixes, processes, proton, system
-from .services.command import PlanError, build_plan
+from .services.command import SCRIPT_TOKEN, PlanError, build_plan, to_windows_path
 from .services.gameenv import game_env
 
 # How long to keep draining the game's pipe after the process itself exited.
@@ -29,6 +30,7 @@ def _prepare() -> None:
         with contextlib.suppress(OSError):
             Path(stale).unlink(missing_ok=True)
     prune_proton_logs()
+    prune_scripts()
 
 
 def _plan_for(game_id: str, logs: bool = True):
@@ -80,28 +82,26 @@ def run_headless(game_id: str, logs: bool = True) -> int:
     if plan.env.get("WINEPREFIX"):
         Path(plan.env["WINEPREFIX"]).mkdir(parents=True, exist_ok=True)
 
-    for program in plan.programs_before:
-        subprocess.Popen(  # noqa: S603 - argv list, no shell
-            program.argv,
-            cwd=plan.cwd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        if program.delay:
-            time.sleep(program.delay)
+    argv = list(plan.argv)
+    if plan.script:
+        scripts = script_dir()
+        scripts.mkdir(parents=True, exist_ok=True)
+        script_path = scripts / f"{record['id']}.bat"
+        script_path.write_text(plan.script, encoding="utf-8", newline="")
+        windows = to_windows_path(str(script_path))
+        argv = [part.replace(SCRIPT_TOKEN, windows) for part in argv]
+        print(f"# launch script: {script_path}", flush=True)
 
     if plan.pre_launch:
         subprocess.run(  # noqa: S602 - user supplied hook
             plan.pre_launch, shell=True, env=env, cwd=plan.cwd, check=False, start_new_session=True
         )
 
-    print(f"$ {plan.description}", flush=True)
+    print("$ " + " ".join(shlex.quote(part) for part in argv), flush=True)
     started = time.monotonic()
     try:
         process = subprocess.Popen(
-            plan.argv,
+            argv,
             cwd=plan.cwd,
             env=env,
             stdout=subprocess.PIPE,
@@ -114,23 +114,6 @@ def run_headless(game_id: str, logs: bool = True) -> int:
         store.finish_run(record["id"], "failed", None, 0)
         print(f"error: could not start game: {error}", file=sys.stderr)
         return 2
-
-    def spawn(program) -> None:
-        with contextlib.suppress(OSError):
-            subprocess.Popen(  # noqa: S603 - argv list, no shell
-                program.argv,
-                cwd=plan.cwd,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-
-    for program in plan.programs_after:
-        if program.delay:
-            threading.Timer(program.delay, spawn, (program,)).start()
-        else:
-            spawn(program)
 
     with log_path.open("w", encoding="utf-8") as log:
         assert process.stdout is not None

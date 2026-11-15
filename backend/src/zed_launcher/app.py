@@ -15,7 +15,7 @@ from .api import artwork, backups, games, installer, prefixes, runs
 from .api import system as system_api
 from .api.security import TokenMiddleware
 from .config import load_config
-from .paths import artwork_dir, ensure_dirs, prune_proton_logs, web_root
+from .paths import artwork_dir, ensure_dirs, prune_proton_logs, prune_scripts, web_root
 from .services import processes
 from .services.runner import RunManager
 
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with suppress(OSError):
             Path(stale).unlink(missing_ok=True)
     prune_proton_logs()
+    prune_scripts()
     store.reconcile_open_runs(_pid_alive)
 
     scheduler = asyncio.create_task(_backup_scheduler())
