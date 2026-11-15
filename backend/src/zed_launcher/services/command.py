@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shlex
 import zlib
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -140,15 +141,35 @@ def legacy_launch_args(value: str) -> tuple[str, str]:
 
 SCRIPT_TOKEN = "__ZED_REPLACE_ME__"
 
-# `start ""` returns immediately; `start "" /wait` blocks until the program exits. The
-# game uses /wait so cmd stays alive for the whole session, which is what keeps the
-# single pressure-vessel container (and its wineserver) running for every program.
+# pressure-vessel shows the container only the paths a game needs: the executable's own
+# directory, the prefix and Proton. A program living elsewhere (a deck tracker on another
+# disk) is therefore invisible and wine's `start` fails without a word. This variable
+# asks pressure-vessel to bind those directories into the container.
+MOUNT_ENV = "PRESSURE_VESSEL_FILESYSTEMS_RW"
+
+
+# Every row is launched with a plain `start ""`, which returns at once: Proton keeps the
+# session (and therefore the container) alive until the wine processes end, so no /wait
+# is needed and the rows after the game start as soon as the game is up.
 def _win(path: str) -> str:
-    return 'z:' + str(path).replace("/", "\\")
+    """DOS path with forward slashes: wine accepts them and `start` handles them best."""
+
+    return 'z:/' + str(path).lstrip("/")
 
 
 def _quote(argument: str) -> str:
     return f'"{argument}"' if " " in argument else argument
+
+
+def _start(program: str, args: list[str]) -> str:
+    """One `start` line, in the same shape Faugus generates.
+
+    Wine's `start` is happiest with forward slashes and an always-quoted path;
+    `start "" /d <unquoted dir>` silently did nothing for the first row, which is
+    how Hearthstone Deck Tracker ended up never launching.
+    """
+
+    return " ".join(['start ""', f'"{_win(program)}"', *map(_quote, args)])
 
 
 def build_launch_script(
@@ -156,14 +177,13 @@ def build_launch_script(
     game_args: list[str],
     before: list[dict[str, Any]],
     after: list[dict[str, Any]],
-    cwd: str,
 ) -> tuple[str, list[str]]:
     """A .bat that starts every program inside one wine session.
 
     Returns the script and the launch order, so the log can show what will run.
     """
 
-    lines = ["@echo off", f'cd /d "{_win(cwd)}"']
+    lines = ["@echo off"]
     order: list[str] = []
 
     def wait(seconds: int) -> None:
@@ -175,24 +195,31 @@ def build_launch_script(
     for entry in before:
         wait(int(entry.get("delay") or 0))
         args = split_args(str(entry.get("args") or ""))
-        lines.append('start "" ' + " ".join([_quote(_win(entry["path"])), *map(_quote, args)]))
+        lines.append(_start(str(entry["path"]), args))
         order.append(str(entry["path"]))
 
-    lines.append(
-        'start "" /wait '
-        + " ".join([_quote(_win(game_path)), *map(_quote, game_args)])
-    )
+    lines.append(_start(game_path, game_args))
     order.append(game_path)
-    lines.append("set ZED_GAME_EXIT=%ERRORLEVEL%")
 
     for entry in after:
         wait(int(entry.get("delay") or 0))
         args = split_args(str(entry.get("args") or ""))
-        lines.append('start "" /wait ' + " ".join([_quote(_win(entry["path"])), *map(_quote, args)]))
+        lines.append(_start(str(entry["path"]), args))
         order.append(str(entry["path"]))
 
-    lines.extend(["exit /b %ZED_GAME_EXIT%", ""])
+    lines.extend(["exit", ""])
     return "\r\n".join(lines), order
+
+
+def mount_dirs(paths: Iterable[str], existing: str = "") -> str:
+    """Colon-separated directories to bind into the container, keeping anyone else's."""
+
+    entries = [part for part in existing.split(":") if part]
+    for raw in paths:
+        directory = str(Path(raw).parent)
+        if directory and directory not in entries:
+            entries.append(directory)
+    return ":".join(entries)
 
 
 def build_plan(
@@ -295,15 +322,15 @@ def build_plan(
     script = ""
     order: list[str] = []
     if before or after:
-        script, order = build_launch_script(
-            path,
-            game_args,
-            before,
-            after,
-            str(game.get("working_dir") or "") or str(Path(path).parent),
-        )
-        cmd_exe = wine_program(proton_path, "cmd") or "cmd"
-        argv = [*wrappers, umu_run, cmd_exe, "/c", SCRIPT_TOKEN]
+        script, order = build_launch_script(path, game_args, before, after)
+        # Hand the .bat to umu-run as the executable (Faugus does the same). Wine runs a
+        # batch file through the shell without allocating a console, which is why no cmd
+        # window shows up; `cmd.exe /c script` would open one.
+        argv = [*wrappers, umu_run, SCRIPT_TOKEN]
+        # The container only sees the target executable's directory, so every program the
+        # script starts from somewhere else has to be mounted explicitly.
+        env[MOUNT_ENV] = mount_dirs(order, env.get(MOUNT_ENV, ""))
+        notes_extra.append(f"{MOUNT_ENV}={env[MOUNT_ENV]}")
     else:
         argv = [*wrappers, umu_run, path, *game_args]
 

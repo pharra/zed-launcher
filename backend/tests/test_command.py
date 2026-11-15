@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from zed_launcher.services.command import PlanError, build_plan, umu_game_id
+from zed_launcher.services.command import (
+    PlanError,
+    build_plan,
+    umu_game_id,
+)
 
 
 def make_game(path: Path, **overrides):
@@ -324,20 +328,63 @@ def test_every_program_runs_inside_one_umu_invocation(
             {"kind": "program", "path": str(last), "args": "", "delay": 5},
         ],
     )
-    # One umu-run call for the whole run, so every program shares the container.
+    # One umu-run call for the whole run, and the batch file is its target: a bare
+    # `cmd.exe /c script` would open a console window.
     assert plan.argv.count(str(umu_run)) == 1
-    assert plan.argv[1].endswith("cmd.exe") or plan.argv[1] == "cmd"
-    assert plan.argv[2] == "/c"
-    assert plan.argv[3] == "__ZED_REPLACE_ME__"
+    assert plan.argv[1] == "__ZED_REPLACE_ME__"
     assert plan.order == [str(first), str(executable), str(last)]
 
     script = plan.script
     assert script.startswith("@echo off\r\n")
-    # extras first, then the game with /wait so cmd keeps the session alive
+    # every row is launched without /wait: Proton keeps the session alive by itself
+    assert script.count("/wait") == 0
+    assert script.count('start ""') == 3
+    # Faugus-compatible rows: forward slashes and always-quoted paths. An unquoted
+    # `/d <dir>` made wine's start drop the whole row (HDT never launched).
+    assert script.count("/d ") == 0
+    assert f'start "" "z:{first}"' in script
     assert script.index("trainer.exe") < script.index(executable.name)
-    assert 'start "" /wait' in script
     assert "ping -n 6 127.0.0.1" in script  # the 5s delay of the program below the game
-    assert script.rstrip().endswith("exit /b %ZED_GAME_EXIT%")
+    assert script.rstrip().endswith("exit")
+
+
+def test_extra_program_dirs_are_mounted_into_the_container(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    # pressure-vessel only exposes the target executable's directory, so a program
+    # living elsewhere has to be requested explicitly or wine cannot see it.
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    tracker = outside / "tracker.exe"
+    tracker.write_bytes(b"")
+    plan = _tool_plan(
+        executable,
+        umu_run,
+        proton_dir,
+        tmp_path,
+        extra_programs=[{"kind": "program", "path": str(tracker)}],
+    )
+    mounted = plan.env["PRESSURE_VESSEL_FILESYSTEMS_RW"].split(":")
+    assert str(outside) in mounted
+    assert str(executable.parent) in mounted
+
+
+def test_user_mount_list_is_kept(executable, umu_run, proton_dir, tmp_path) -> None:
+    extra = tmp_path / "tools" / "tool.exe"
+    extra.parent.mkdir()
+    extra.write_bytes(b"")
+    plan = _tool_plan(
+        executable,
+        umu_run,
+        proton_dir,
+        tmp_path,
+        env='PRESSURE_VESSEL_FILESYSTEMS_RW="/somewhere:/other"',
+        extra_programs=[{"kind": "program", "path": str(extra)}],
+    )
+    mounted = plan.env["PRESSURE_VESSEL_FILESYSTEMS_RW"].split(":")
+    assert mounted[:2] == ["/somewhere", "/other"]
+    assert str(extra.parent) in mounted
+    assert len(mounted) == len(set(mounted))
 
 
 def test_game_entry_is_appended_when_missing(executable, umu_run, proton_dir, tmp_path) -> None:

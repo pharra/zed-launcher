@@ -16,7 +16,7 @@ from . import __version__, store
 from .config import load_config
 from .paths import ensure_dirs, log_dir, prune_proton_logs, prune_scripts, script_dir
 from .services import prefixes, processes, proton, system
-from .services.command import SCRIPT_TOKEN, PlanError, build_plan, to_windows_path
+from .services.command import SCRIPT_TOKEN, PlanError, build_plan
 from .services.gameenv import game_env
 
 # How long to keep draining the game's pipe after the process itself exited.
@@ -88,8 +88,7 @@ def run_headless(game_id: str, logs: bool = True) -> int:
         scripts.mkdir(parents=True, exist_ok=True)
         script_path = scripts / f"{record['id']}.bat"
         script_path.write_text(plan.script, encoding="utf-8", newline="")
-        windows = to_windows_path(str(script_path))
-        argv = [part.replace(SCRIPT_TOKEN, windows) for part in argv]
+        argv = [part.replace(SCRIPT_TOKEN, str(script_path)) for part in argv]
         print(f"# launch script: {script_path}", flush=True)
 
     if plan.pre_launch:

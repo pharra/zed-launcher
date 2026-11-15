@@ -16,7 +16,7 @@ from .. import store
 from ..config import load_config
 from ..paths import ensure_dirs, log_dir, script_dir
 from . import diagnose, notify, processes
-from .command import SCRIPT_TOKEN, LaunchPlan, to_windows_path
+from .command import SCRIPT_TOKEN, LaunchPlan
 from .gameenv import game_env
 
 # How long to keep reading the game's pipe after the process itself exited.
@@ -192,8 +192,7 @@ class RunManager:
         note(f"# launch script: {path}")
         if plan.order:
             note("# order: " + " -> ".join(Path(part).name for part in plan.order))
-        windows = to_windows_path(str(path))
-        return [part.replace(SCRIPT_TOKEN, windows) for part in plan.argv]
+        return [part.replace(SCRIPT_TOKEN, str(path)) for part in plan.argv]
 
     async def _spawn_watcher(self, run_id: str, game_id: str, pid: int) -> None:
         """Keep recording the run even if the launcher window is closed."""

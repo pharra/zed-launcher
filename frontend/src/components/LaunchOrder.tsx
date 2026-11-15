@@ -65,8 +65,8 @@ export function LaunchOrder({gamePath, entries, onChange}: LaunchOrderProps) {
     <div className="flex min-w-0 flex-col gap-3">
       <p className="text-xs leading-snug text-muted">
         {t(
-          "Programs start in this order. Drag rows (or use the arrows) to reorder. Everything runs inside one umu-run container, so the extra programs share the game's wine session.",
-          "程序按此顺序启动。拖拽行（或使用箭头）调整顺序。全部程序在同一个 umu-run 容器里运行，因此额外程序与游戏共享同一个 wine 会话。",
+          "Programs start in this order — rows below the game start as soon as the game is up. Drag (or use the arrows) to reorder. Everything runs in one umu-run container, so the extra programs share the game's wine session.",
+          "程序按此顺序启动，游戏行之后的程序会在游戏起来后立即启动。拖拽（或使用箭头）调整顺序。全部程序在同一个 umu-run 容器里运行，因此额外程序与游戏共享同一个 wine 会话。",
         )}
       </p>
 

@@ -96,20 +96,31 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
 
   ```bat
   @echo off
-  cd /d "z:\path\to\game"
-  ping -n 4 127.0.0.1 >nul                 :: 3s delay of this row
-  start "" "z:\…\trainer.exe" --cfg …    :: before the game, keeps running
-  start "" /wait "z:\…\game.exe" -flag    :: the game; /wait keeps the session alive
-  set ZED_GAME_EXIT=%ERRORLEVEL%
-  start "" /wait "z:\…\after.exe"         :: after the game exits
-  exit /b %ZED_GAME_EXIT%
+  start "" "z:/…/trainer.exe" --cfg …   :: before the game, keeps running
+  ping -n 6 127.0.0.1 >nul              :: 5s delay of the next row
+  start "" "z:/…/game.exe" -flag        :: the game
+  start "" "z:/…/after.exe"             :: starts once the game is up
+  exit
   ```
 
+  The `.bat` is handed to `umu-run` **as the executable**, exactly like Faugus does: wine runs a
+  batch file through the shell without allocating a console, so no `cmd` window appears (passing
+  `cmd.exe /c script` opens one). No row uses `start /wait` — Proton keeps the session, and
+  therefore the container, alive until the wine processes finish, so the rows below the game start
+  as soon as the game is up. Rows use `z:/…` (forward slashes, always quoted) because that is the
+  form wine's `start` parses most reliably.
+
   One invocation means one pressure-vessel container and one wineserver, so trainers and overlays
-  share the game's wine session — separate `umu-run` calls would each get their own `/tmp` and
-  therefore their own `wineserver`. Delays use `ping -n` (the only sleep a bare `cmd` offers), the
-  game's exit code is propagated, and a missing file is dropped from the script with a note in the
-  log. Scripts live in `$XDG_STATE_HOME/zed-launcher/scripts/` and the last 200 are kept.
+  share the game's wine session; separate `umu-run` calls would each get their own `/tmp` and
+  therefore their own `wineserver`. Delays use `ping -n` (the only sleep a bare `cmd` offers) and a
+  missing file is dropped from the script with a note in the log. Scripts live in
+  `$XDG_STATE_HOME/zed-launcher/scripts/` and the last 200 are kept.
+
+  pressure-vessel only exposes the target executable's directory, the prefix and Proton inside the
+  container, so an extra program stored elsewhere (a deck tracker on another disk, for example) is
+  invisible and `start` fails without a word. The launcher therefore adds the directory of every
+  program in the script to `PRESSURE_VESSEL_FILESYSTEMS_RW`, which asks pressure-vessel to bind
+  them read-write; a value set in the game's environment is kept and extended.
 - **Live output** — stream stdout/stderr over WebSocket, keep a log file, stop the whole
   process group, track playtime.
 - **Process ownership** — every launch exports `ZED_RUN_ID=<run id>`, so the launcher can find
