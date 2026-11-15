@@ -23,6 +23,7 @@ export interface Game {
   wayland: boolean;
   wow64: boolean;
   owned_prefix: boolean;
+  shortcut: boolean;
   playtime: number;
   last_played: string | null;
   created_at: string;

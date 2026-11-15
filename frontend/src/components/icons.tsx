@@ -180,3 +180,30 @@ export function ImageIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function StopIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function LinkIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M10 13.5a4 4 0 0 0 5.66 0l2.5-2.5a4 4 0 0 0-5.66-5.66L11 6.9" />
+      <path d="M14 10.5a4 4 0 0 0-5.66 0l-2.5 2.5a4 4 0 0 0 5.66 5.66l1.5-1.5" />
+    </svg>
+  );
+}
+
+export function UnlinkIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M10 13.5a4 4 0 0 0 5.66 0l2.5-2.5a4 4 0 0 0-5.66-5.66L11 6.9" />
+      <path d="M14 10.5a4 4 0 0 0-5.66 0l-2.5 2.5a4 4 0 0 0 5.66 5.66l1.5-1.5" />
+      <path d="M4 4l16 16" />
+    </svg>
+  );
+}

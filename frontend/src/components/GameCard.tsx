@@ -3,13 +3,15 @@ import {Button, Card, Chip, Tooltip} from "@heroui/react";
 import {artworkUrl, formatPlaytime} from "../lib/api";
 import {useT} from "../lib/i18n";
 import type {Game} from "../lib/types";
-import {GamepadIcon, PencilIcon, PlayIcon, TerminalIcon, TrashIcon} from "./icons";
+import {GamepadIcon, LinkIcon, PencilIcon, PlayIcon, StopIcon, TerminalIcon, TrashIcon, UnlinkIcon} from "./icons";
 
 interface GameCardProps {
   game: Game;
   protonLabel: string;
   running: boolean;
   onPlay: (game: Game) => void;
+  onShowLog: (game: Game) => void;
+  onStop: (game: Game) => void;
   onEdit: (game: Game) => void;
   onDelete: (game: Game) => void;
   onShortcut: (game: Game) => void;
@@ -35,6 +37,8 @@ export function GameCard({
   protonLabel,
   running,
   onPlay,
+  onShowLog,
+  onStop,
   onEdit,
   onDelete,
   onShortcut,
@@ -50,7 +54,7 @@ export function GameCard({
       <button
         type="button"
         className={`relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-gradient-to-br ${gradientFor(game.id)}`}
-        onClick={() => onPlay(game)}
+        onClick={() => (running ? onShowLog(game) : onPlay(game))}
       >
         {game.cover ? (
           <img alt="" className="absolute inset-0 size-full object-cover" loading="lazy" src={artworkUrl(game.cover)} />
@@ -96,10 +100,23 @@ export function GameCard({
       </Card.Header>
 
       <Card.Footer className="gap-1 px-1 pb-1 pt-1">
-        <Button size="sm" className="flex-1" onPress={() => onPlay(game)}>
-          <PlayIcon className="size-3.5" />
-          {t("Play", "开始游戏")}
-        </Button>
+        {running ? (
+          <>
+            <Button size="sm" variant="secondary" className="flex-1" onPress={() => onShowLog(game)}>
+              <TerminalIcon className="size-3.5" />
+              {t("Log", "日志")}
+            </Button>
+            <Button size="sm" variant="danger-soft" className="flex-1" onPress={() => onStop(game)}>
+              <StopIcon className="size-3.5" />
+              {t("Stop", "终止游戏")}
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" className="flex-1" onPress={() => onPlay(game)}>
+            <PlayIcon className="size-3.5" />
+            {t("Play", "开始游戏")}
+          </Button>
+        )}
         <Tooltip>
           <Tooltip.Trigger>
             <Button isIconOnly size="sm" variant="secondary" aria-label={t("Edit", "编辑")} onPress={() => onEdit(game)}>
@@ -114,13 +131,21 @@ export function GameCard({
               isIconOnly
               size="sm"
               variant="secondary"
-              aria-label={t("Create shortcut", "创建快捷方式")}
+              aria-label={
+                game.shortcut
+                  ? t("Remove shortcut", "删除快捷方式")
+                  : t("Create shortcut", "创建快捷方式")
+              }
               onPress={() => onShortcut(game)}
             >
-              <TerminalIcon className="size-4" />
+              {game.shortcut ? <UnlinkIcon className="size-4" /> : <LinkIcon className="size-4" />}
             </Button>
           </Tooltip.Trigger>
-          <Tooltip.Content>{t("Create desktop shortcut", "创建桌面快捷方式")}</Tooltip.Content>
+          <Tooltip.Content>
+            {game.shortcut
+              ? t("Remove the application shortcut", "删除已创建的应用快捷方式")
+              : t("Create an application shortcut", "创建应用快捷方式")}
+          </Tooltip.Content>
         </Tooltip>
         <Tooltip>
           <Tooltip.Trigger>

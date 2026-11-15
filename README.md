@@ -39,7 +39,10 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   instead of typing a path.
 - **Game details** — click a title for playtime, prefix/executable summary, recent runs with
   status, duration, exit code and a shortcut to the log file.
-- **Running indicator** — the header shows how many games are running and can stop them all.
+- **Running indicator** — the header shows how many games are running and can stop them all. A
+  running game's card swaps *Play* for *Log* and *Stop*: the log drawer can be closed and
+  reopened at any time, pressing play again opens the existing run instead of failing with
+  "already running".
 - **Reattach after a restart** — a game started earlier still shows as running with its log
   tailed from the log file, and can be stopped from the launcher; runs whose process is gone
   (crash, reboot) are closed automatically instead of lingering.
@@ -120,7 +123,8 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
     PNG and shown on the game card when no cover is set.
 - **Desktop notifications** — `notify-send` reports the exit status and playtime when a game
   finishes; toggled in Settings and disabled automatically when `notify-send` is missing.
-- **Desktop shortcuts** — generated `.desktop` entries call `zed-launcher --run <id>`.
+- **Desktop shortcuts** — generated `.desktop` entries call `zed-launcher --run <id>`. The card
+  button switches to *Remove shortcut* once the entry exists, so it can be deleted again.
 - **Log retention** — finished runs are pruned per game (50 kept) together with their log files.
 - **Diagnostics** — umu-run, MangoHud, GameMode, Gamescope, notify-send, icoextract, GPU,
   Proton sources and storage.

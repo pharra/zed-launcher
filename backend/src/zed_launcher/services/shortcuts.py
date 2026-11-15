@@ -66,6 +66,11 @@ def create_desktop_entry(game: dict[str, Any], target: str = "applications") -> 
     return path
 
 
+def shortcut_exists(game_id: str, target: str = "applications") -> bool:
+    directory = applications_dir() if target == "applications" else Path(user_desktop_dir())
+    return (directory / f"zed-launcher-{game_id}.desktop").is_file()
+
+
 def remove_desktop_entry(game_id: str, target: str = "applications") -> bool:
     directory = applications_dir() if target == "applications" else Path(user_desktop_dir())
     path = directory / f"zed-launcher-{game_id}.desktop"

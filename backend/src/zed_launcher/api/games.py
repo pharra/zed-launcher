@@ -11,15 +11,21 @@ from ..config import load_config
 from ..paths import log_dir
 from ..services import artwork, icons, prefixes, proton, system
 from ..services.command import PlanError, build_plan, normalize_programs
-from ..services.shortcuts import create_desktop_entry, remove_desktop_entry
+from ..services.shortcuts import create_desktop_entry, remove_desktop_entry, shortcut_exists
 from .models import ArtworkRequest, GameCreate, GamePatch
 
 router = APIRouter(prefix="/api/v1/games", tags=["games"])
 
 
+def _with_shortcut(game: dict) -> dict:
+    """Tell the UI whether a desktop entry already exists for this game."""
+
+    return {**game, "shortcut": shortcut_exists(str(game["id"]))}
+
+
 @router.get("")
 def list_games(search: str | None = None, sort: str = "title") -> list[dict]:
-    return store.list_games(search, sort)
+    return [_with_shortcut(game) for game in store.list_games(search, sort)]
 
 
 @router.get("/{game_id}")
@@ -27,7 +33,7 @@ def get_game(game_id: str) -> dict:
     game = store.get_game(game_id)
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
-    return game
+    return _with_shortcut(game)
 
 
 @router.get("/{game_id}/runs")

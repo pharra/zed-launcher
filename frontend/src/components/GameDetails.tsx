@@ -222,8 +222,8 @@ export function GameDetails({
                 {t("Prefix tools", "Prefix 工具")}
               </Button>
               <Button onPress={() => game && onPlay(game)}>
-                <PlayIcon className="size-4" />
-                {t("Play", "开始游戏")}
+                {running ? <TerminalIcon className="size-4" /> : <PlayIcon className="size-4" />}
+                {running ? t("Log", "日志") : t("Play", "开始游戏")}
               </Button>
             </div>
           </Modal.Footer>

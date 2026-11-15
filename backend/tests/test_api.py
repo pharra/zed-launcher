@@ -752,3 +752,21 @@ def test_run_finishes_when_a_grandchild_keeps_the_pipe_open(
 
     assert status == "exited"
     assert not client.get("/api/v1/runs").json()
+
+
+def test_games_report_whether_a_shortcut_exists(
+    client: TestClient, executable: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = tmp_path / "data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    game = _create(client, executable, title="Shortcut")
+
+    assert client.get(f"/api/v1/games/{game['id']}").json()["shortcut"] is False
+
+    created = client.post(f"/api/v1/games/{game['id']}/shortcut")
+    assert created.status_code == 200, created.text
+    listed = {item["id"]: item for item in client.get("/api/v1/games").json()}
+    assert listed[game["id"]]["shortcut"] is True
+
+    assert client.delete(f"/api/v1/games/{game['id']}/shortcut").status_code == 204
+    assert client.get(f"/api/v1/games/{game['id']}").json()["shortcut"] is False

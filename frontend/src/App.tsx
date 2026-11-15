@@ -154,12 +154,62 @@ function Launcher() {
     localStorage.setItem("zed.theme", dark ? "dark" : "light");
   }, [dark]);
 
+  function runFor(game: Game): RunSnapshot | undefined {
+    return activeRuns.find(
+      (entry) =>
+        entry.game_id === game.id && (entry.status === "running" || entry.status === "starting"),
+    );
+  }
+
+  /** Open the log drawer for a run that is already going. */
+  async function showLog(game: Game) {
+    const existing = runFor(game);
+    if (existing) {
+      setRun(existing);
+      return;
+    }
+    try {
+      const runs = await api.activeRuns();
+      setActiveRuns(runs);
+      const match = runs.find(
+        (entry) =>
+          entry.game_id === game.id && (entry.status === "running" || entry.status === "starting"),
+      );
+      if (match) setRun(match);
+      else toast.warning(t("This game is not running", "该游戏当前没有运行"));
+    } catch (error) {
+      toast.danger(t("Could not load the log", "无法加载日志"), {description: String((error as Error).message)});
+    }
+  }
+
   async function play(game: Game) {
+    if (runFor(game)) {
+      await showLog(game);
+      return;
+    }
     try {
       setRun(await api.launchGame(game.id));
       void refreshActive();
     } catch (error) {
       toast.danger(t("Could not launch the game", "无法启动游戏"), {description: String((error as Error).message)});
+    }
+  }
+
+  async function stopGame(game: Game) {
+    const existing = runFor(game);
+    if (!existing) {
+      toast.warning(t("This game is not running", "该游戏当前没有运行"));
+      await refreshActive();
+      return;
+    }
+    try {
+      await api.stopRun(existing.run_id);
+      toast.success(t("Game stopped", "游戏已终止"), {description: game.title});
+      if (run?.run_id === existing.run_id) setRun(null);
+      await refreshActive();
+      await refreshGames();
+    } catch (error) {
+      toast.danger(t("Could not stop the game", "无法终止游戏"), {description: String((error as Error).message)});
     }
   }
 
@@ -195,10 +245,23 @@ function Launcher() {
 
   async function createShortcut(game: Game) {
     try {
-      const result = await api.createShortcut(game.id, "applications");
-      toast.success(t("Application shortcut created", "已创建应用快捷方式"), {description: result.path});
+      if (game.shortcut) {
+        await api.deleteShortcut(game.id, "applications");
+        toast.success(t("Application shortcut removed", "已删除应用快捷方式"), {description: game.title});
+      } else {
+        const result = await api.createShortcut(game.id, "applications");
+        toast.success(t("Application shortcut created", "已创建应用快捷方式"), {
+          description: result.path,
+        });
+      }
+      await refreshGames();
     } catch (error) {
-      toast.danger(t("Could not create the shortcut", "无法创建快捷方式"), {description: String((error as Error).message)});
+      toast.danger(
+        game.shortcut
+          ? t("Could not remove the shortcut", "无法删除快捷方式")
+          : t("Could not create the shortcut", "无法创建快捷方式"),
+        {description: String((error as Error).message)},
+      );
     }
   }
 
@@ -430,6 +493,8 @@ function Launcher() {
                     protonLabel={protonLabel(game)}
                     running={runningGames.has(game.id)}
                     onPlay={play}
+                    onShowLog={(target) => void showLog(target)}
+                    onStop={(target) => void stopGame(target)}
                     onEdit={(target) => openEditor("edit", target)}
                     onDelete={(target) => {
                       setDeleteTarget(target);
