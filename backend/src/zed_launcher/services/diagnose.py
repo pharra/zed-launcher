@@ -72,6 +72,18 @@ RULES: tuple[tuple[re.Pattern[str], Hint], ...] = (
         ),
     ),
     (
+        re.compile(r"single_pixel_buffer_manager_v1 isn't supported", re.I),
+        Hint(
+            "kwin-protocols",
+            "KWin cannot open its window in this desktop session: the running compositor lacks "
+            "wp_single_pixel_buffer_manager_v1, which nested KWin requires. Run the desktop session "
+            "under KWin itself, or turn KWin off for this game (Gamescope still works).",
+            "KWin 无法在当前桌面会话里开窗口：正在运行的合成器缺少 "
+            "wp_single_pixel_buffer_manager_v1（嵌套 KWin 必需）。请把桌面会话换成 KWin，"
+            "或为此游戏关闭 KWin（Gamescope 仍可用）。",
+        ),
+    ),
+    (
         re.compile(r"umu(?:-launcher)?: .*(?:runtime|steamrt)|steam runtime (?:missing|not found)", re.I),
         Hint(
             "runtime",

@@ -615,3 +615,22 @@ def test_normalize_mount_dirs_cleans_and_validates(tmp_path) -> None:
         normalize_mount_dirs(["relative"])
     with pytest.raises(PlanError, match="does not exist"):
         normalize_mount_dirs([str(tmp_path / "gone")])
+
+
+def test_kwin_launch_avoids_the_crashing_qt_theme(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+    # The session's KDE/portal platform theme segfaults inside kwin_wayland, and kwin logs
+    # to the journal by default, which would leave nothing in the run log.
+    assert plan.env["QT_QPA_PLATFORMTHEME"] == "generic"
+    assert plan.env["QT_FORCE_STDERR_LOGGING"] == "1"
+
+
+def test_kwin_keeps_a_platform_theme_the_user_chose(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    plan = _tool_plan(
+        executable, umu_run, proton_dir, tmp_path, kwin=True, env="QT_QPA_PLATFORMTHEME=qt6ct"
+    )
+    assert plan.env["QT_QPA_PLATFORMTHEME"] == "qt6ct"

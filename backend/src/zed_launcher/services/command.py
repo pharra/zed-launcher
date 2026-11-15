@@ -337,12 +337,19 @@ def build_plan(
                 "--",
             ]
         )
-    if game.get("kwin") and available.get("kwin"):
-        wrappers.extend(
-            kwin_prefix(
-                str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
+    if game.get("kwin"):
+        # Qt takes the KDE/portal platform theme from the session, and that theme plugin
+        # segfaults inside kwin_wayland before it can open a window (seen with
+        # QT_QPA_PLATFORMTHEME=xdgdesktopportal on a KDE-flavoured session).
+        env.setdefault("QT_QPA_PLATFORMTHEME", "generic")
+        # kwin logs to the systemd journal, which would leave this log empty.
+        env.setdefault("QT_FORCE_STDERR_LOGGING", "1")
+        if available.get("kwin"):
+            wrappers.extend(
+                kwin_prefix(
+                    str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
+                )
             )
-        )
     if game.get("gamemode") and available.get("gamemoderun"):
         wrappers.append(str(available["gamemoderun"]))
     if game.get("gamescope") and available.get("gamescope"):
