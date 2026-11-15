@@ -49,6 +49,31 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   the batch file, `<run id>.sh` (`#!/bin/sh` + `exec …` with everything quoted), and hands that to
   kwin; the sleep inhibitor stays outside the session so it keeps running with it.
 
+  **KWin is the process that is isolated, not the game.** Plasma 6 serves
+  `org.kde.kglobalaccel` from the compositor process itself and KWin's own shortcuts go through that
+  name, so a nested instance sharing the session bus registers its ~170 `kwin` actions in the
+  *outer* KWin's registry and sends `setInactive` for all of them when it exits — the desktop then
+  loses Window Close, Overview, Kill Window and the keyboard-layout switch. KWin therefore runs
+  under `dbus-run-session -- …` with a bus of its own (which also keeps `org.kde.KWin` from
+  colliding with the compositor that hosts it), and `<run id>.sh` exports the session's own
+  `DBUS_SESSION_BUS_ADDRESS` again before `exec`. That export is not a hole in the isolation — kwin
+  already has its private bus when it starts — it is what keeps the game working: a game on the
+  private bus loses every session service, and GameMode is the clearest case. `gamemoderun` only
+  sets `LD_PRELOAD`; the daemon is asked over D-Bus from inside the game process, so a private bus
+  answers `The name com.feralinteractive.GameMode was not provided by any .service files` and
+  putting `gamemoderun` in front of `kwin_wayland` changes nothing. Its `--config-file` points at
+  a minimal bus configuration without service directories: a plain session bus would activate the
+  desktop's own `.service` files (fcitx5, `xdg-desktop-portal`, dconf) and start a second copy of
+  them next to the running desktop. kwin also reads and rewrites its configuration while it runs, so
+  it gets `XDG_CONFIG_HOME=$XDG_STATE_HOME/zed-launcher/kwin`
+  (`env XDG_CONFIG_HOME=…` in front of `kwin_wayland`). Nothing is copied into it: kwin writes its
+  own defaults there on the first launch and keeps using them, so the desktop's `kwinrc`,
+  `kwinrulesrc`, `kglobalshortcutsrc` and `kdeglobals` are never touched — and anything that needs
+  to differ in a nested session (keyboard layout, for example) is configured in that directory
+  instead. `<run id>.sh` hands `XDG_CONFIG_HOME` back to the game for the same reason as the bus
+  (MangoHud and other wrappers read the user's configuration files). Without `dbus-run-session` the
+  launch still works and the run log says that the shortcuts of the desktop session are at risk.
+
   Two Qt settings come with a KWin launch: `QT_QPA_PLATFORMTHEME=generic`, because the session's
   `xdgdesktopportal`/KDE theme plugin segfaults inside `kwin_wayland` before it opens a window, and
   `QT_FORCE_STDERR_LOGGING=1`, because kwin otherwise logs to the journal and the run log stays
@@ -211,6 +236,7 @@ Zed Launcher splits runtime dependencies into required and optional ones.
 | optional | GameMode | per-game switch disabled |
 | optional | Gamescope | per-game switch disabled |
 | optional | `kwin_wayland` (KWin) | per-game KWin switch disabled; path can be set in Settings |
+| optional | `dbus-run-session` | the nested KWin keeps sharing the session bus, so it takes the desktop's global shortcuts with it when it exits (the run log says so) |
 | optional | `systemd-inhibit` | "Prevent sleep" switch disabled |
 | optional | `notify-send` | desktop notification switch disabled with an inline hint |
 | optional | `icoextract` | icon extraction button reports that it is unavailable |
@@ -412,6 +438,7 @@ Launch flow:
 | `$XDG_DATA_HOME/zed-launcher/protons/` | Proton builds downloaded in-app |
 | `$XDG_STATE_HOME/zed-launcher/logs/` | per-run logs (plus Proton's `steam-*.log` when verbose logging is on) |
 | `$XDG_STATE_HOME/zed-launcher/scripts/` | generated `.bat` (launch order) and `.sh` (nested KWin session) of the last runs, deleted after 200 |
+| `$XDG_STATE_HOME/zed-launcher/kwin/` | `XDG_CONFIG_HOME` and bus configuration of a nested KWin; kwin writes its own defaults here, the desktop's files stay untouched |
 | `~/Games/Zed` | default prefix folder |
 
 ## Roadmap

@@ -86,6 +86,7 @@ export interface Tools {
   gamescope: string | null;
   kwin: string | null;
   kwin_session: KwinSession;
+  dbus_run_session: string | null;
   systemd_inhibit: string | null;
   notify_send: string | null;
   icoextract: string | null;

@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..paths import kwin_session_dir
+
 
 class PlanError(RuntimeError):
     pass
@@ -220,6 +222,39 @@ def build_launch_script(
 # is what always-on-top overlays (deck trackers, chat clients) need and gamescope ignores.
 KWIN_ARGS = "--width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts"
 
+# What the nested compositor must not share with the desktop, and what the game must keep.
+#
+# The bus has to be private: Plasma serves org.kde.kglobalaccel and org.kde.KWin from the
+# running compositor, so a nested KWin on the session bus registers its own shortcuts there
+# and deactivates the desktop's when it exits. The config directory has to be private for the
+# same reason (a nested run used to rewrite kwinrc and kglobalshortcutsrc).
+#
+# The game is a child of kwin and inherits both, so the wrapper hands the session's values
+# back to it. That is not a hole in the isolation — kwin itself already has its own values —
+# and it is required, because a game on the private bus loses every session service. GameMode
+# is the clearest case: `gamemoderun` only sets LD_PRELOAD, the daemon is asked over D-Bus
+# from inside the game, and a private bus answers "The name com.feralinteractive.GameMode was
+# not provided by any .service files". Putting gamemoderun in front of kwin changes nothing.
+SESSION_ENV = ("DBUS_SESSION_BUS_ADDRESS", "XDG_CONFIG_HOME")
+
+# A plain session bus would activate the desktop's own services through their .service files
+# the moment kwin asks for one (fcitx5, xdg-desktop-portal, dconf), starting a second copy of
+# them next to the running desktop. The nested session only needs connections, no activation.
+KWIN_BUS_CONFIG = """<!DOCTYPE busconfig PUBLIC
+ "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+"""
+
 
 def kwin_prefix(binary: str, raw: str, environ: Mapping[str, str]) -> list[str]:
     """The KWin arguments in front of the command that runs inside its session."""
@@ -229,6 +264,51 @@ def kwin_prefix(binary: str, raw: str, environ: Mapping[str, str]) -> list[str]:
     if not environ.get("WAYLAND_DISPLAY") and environ.get("DISPLAY"):
         argv.extend(["--x11-display", str(environ["DISPLAY"])])
     return [*argv, "--exit-with-session"]
+
+
+def kwin_config_home() -> Path | None:
+    """A private XDG_CONFIG_HOME for the nested session.
+
+    It stays empty: kwin writes its defaults there on the first launch (kwinrc,
+    kwinoutputconfig.json, ...) and keeps using them afterwards, so the directory doubles as
+    the place to configure a nested session without touching the desktop's own files.
+    """
+
+    target = kwin_session_dir()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return target
+
+
+def kwin_bus_config() -> Path | None:
+    """Write the configuration of the nested session's bus, without service activation."""
+
+    target = kwin_session_dir() / "dbus-session.conf"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(KWIN_BUS_CONFIG, encoding="utf-8")
+    except OSError:
+        return None
+    return target
+
+
+def kwin_session_wrapper(chain: list[str], environ: Mapping[str, str]) -> str:
+    """The single program kwin runs: the chain, with the session's own environment again.
+
+    kwin is the process that must stay isolated, and it already has its private values when it
+    starts. Its children inherit them, so the game and its wrappers are given the session's bus
+    and config directory back: they need the services of the real session (GameMode above all)
+    and the user's configuration files.
+    """
+
+    restore = ""
+    for name in SESSION_ENV:
+        value = str(environ.get(name) or "")
+        restore += f"export {name}={shlex.quote(value)}\n" if value else f"unset {name}\n"
+    command = " ".join(shlex.quote(part) for part in chain)
+    return f"#!/bin/sh\n{restore}exec {command}\n"
 
 
 def normalize_mount_dirs(value: Any) -> list[str]:
@@ -362,6 +442,34 @@ def build_plan(
             kwin_argv = kwin_prefix(
                 str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
             )
+            # kwin reads and rewrites its configuration while it runs, so it gets a directory
+            # of its own instead of the one the desktop session is using.
+            config_home = kwin_config_home()
+            if config_home is None:
+                notes_extra.append(
+                    "Could not create a config directory for the nested KWin session, so it will "
+                    "edit this session's own kwinrc and kglobalshortcutsrc."
+                )
+            else:
+                kwin_argv = ["env", f"XDG_CONFIG_HOME={config_home}", *kwin_argv]
+            # Plasma 6 serves org.kde.kglobalaccel from the compositor itself and KWin's global
+            # shortcuts go through that name, so a nested KWin sharing the session bus
+            # registers its actions in the *outer* KWin's registry and deactivates them on
+            # exit: the desktop loses its window shortcuts. A private bus also keeps
+            # org.kde.KWin from colliding with the compositor that hosts the session.
+            bus = available.get("dbus_run_session")
+            if bus:
+                prefix = [str(bus)]
+                bus_config = kwin_bus_config()
+                if bus_config is not None:
+                    prefix.extend(["--config-file", str(bus_config)])
+                kwin_argv = [*prefix, "--", *kwin_argv]
+            else:
+                notes_extra.append(
+                    "dbus-run-session (or dbus-daemon) was not found, so the nested KWin shares "
+                    "this session's D-Bus: it registers its global shortcuts in the running "
+                    "compositor and takes them away again when the game exits."
+                )
     if game.get("gamemode") and available.get("gamemoderun"):
         inner.append(str(available["gamemoderun"]))
     if game.get("gamescope") and available.get("gamescope"):
@@ -418,10 +526,11 @@ def build_plan(
     cwd = str(game.get("working_dir") or "") or str(Path(path).parent)
 
     # kwin_wayland's --exit-with-session takes exactly one program, so the whole chain has to
-    # be handed over as a single executable; a tiny sh wrapper keeps the quoting intact.
+    # be handed over as a single executable; a tiny sh wrapper keeps the quoting intact and
+    # returns the session bus to the game, which runs outside the nested compositor.
     session_script = ""
     if kwin_argv:
-        session_script = "#!/bin/sh\nexec " + " ".join(shlex.quote(part) for part in argv) + "\n"
+        session_script = kwin_session_wrapper(argv, os.environ)
         argv = [*kwin_argv, SESSION_TOKEN]
     argv = [*outer, *argv]
 

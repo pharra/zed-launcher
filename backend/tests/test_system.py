@@ -24,6 +24,7 @@ def test_tools_shape() -> None:
         "gamescope",
         "kwin",
         "kwin_session",
+        "dbus_run_session",
         "systemd_inhibit",
         "notify_send",
         "icoextract",
@@ -44,6 +45,9 @@ def test_shortcut_creation(tmp_path: Path, monkeypatch, executable: Path) -> Non
     from zed_launcher.services import shortcuts
 
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    # The entry falls back to the bare name when the launcher is not on PATH; keep the test
+    # independent of whether this machine has it installed.
+    monkeypatch.setattr(shortcuts.shutil, "which", lambda name: None)
     game = {"id": "abc123", "title": "My Game", "icon": ""}
     path = shortcuts.create_desktop_entry(game)
 

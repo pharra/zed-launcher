@@ -702,8 +702,8 @@ export function GameEditor({
                     <ToolArguments
                       label={t("KWin arguments", "KWin 参数")}
                       description={t(
-                        "Defaults to --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts.",
-                        "留空时使用 --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts。",
+                        "Defaults to --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts. The nested session keeps its own configuration in ~/.local/state/zed-launcher/kwin, so the desktop's KWin files are never touched.",
+                        "留空时使用 --width 1600 --height 900 --xwayland --no-lockscreen --no-global-shortcuts。嵌套会话的配置独立存放在 ~/.local/state/zed-launcher/kwin，不会改动桌面的 KWin 配置。",
                       )}
                       value={form.kwin_args ?? ""}
                       placeholder="--width 2560 --height 1440"

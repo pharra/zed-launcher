@@ -45,6 +45,7 @@ TOOL_BINARIES = {
     "gamemoderun": "gamemoderun",
     "gamescope": "gamescope",
     "kwin": "kwin_wayland",
+    "dbus_run_session": "dbus-run-session",
     "systemd_inhibit": "systemd-inhibit",
     "notify_send": "notify-send",
 }
@@ -81,6 +82,12 @@ def tools(config: dict[str, Any] | None = None) -> dict[str, str | None]:
         # The binary is not enough: a nested KWin also needs a protocol from the host
         # compositor, so every caller of build_plan gets the session verdict too.
         "kwin_session": wayland.probe(),
+        # A nested KWin gets a session bus of its own; without the wrapper it registers its
+        # global shortcuts in the compositor that hosts it and takes them away on exit. The
+        # wrapper is useless without the daemon it starts.
+        "dbus_run_session": (
+            resolve_tool("dbus_run_session", config) if which("dbus-daemon") else None
+        ),
         "systemd_inhibit": resolve_tool("systemd_inhibit", config),
         "notify_send": resolve_tool("notify_send", config),
         "icoextract": "available" if icons.available() else None,
@@ -157,6 +164,12 @@ def dependency_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
     }
     # A nested KWin needs wp_single_pixel_buffer_manager_v1 from the host compositor.
     optional["kwin"]["session"] = available.get("kwin_session") or {}
+    if optional["kwin"]["available"] and not available.get("dbus_run_session"):
+        optional["kwin"]["warning"] = (
+            "dbus-run-session is missing: the nested KWin shares this session's D-Bus, so it "
+            "registers its shortcuts in the running compositor and the desktop loses them "
+            "when the game exits."
+        )
     missing = [key for key, entry in required.items() if not entry["available"]]
     return {
         "required": required,

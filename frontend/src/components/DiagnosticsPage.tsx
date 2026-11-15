@@ -86,6 +86,7 @@ export function DiagnosticsPage({info, onRefresh}: DiagnosticsPageProps) {
                       : t("missing — nested KWin cannot start", "缺失 — 嵌套 KWin 无法启动")
                 }
               />
+              <StatusRow label="dbus-run-session" value={info.tools.dbus_run_session} />
               <StatusRow label="systemd-inhibit" value={info.tools.systemd_inhibit} />
               <StatusRow label="notify-send" value={info.tools.notify_send} />
               <StatusRow label="icoextract" value={info.tools.icoextract} />

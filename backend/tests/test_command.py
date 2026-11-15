@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -176,6 +177,7 @@ def _tool_plan(executable, umu_run, proton_dir, tmp_path, available_extra=None, 
         "gamescope": "/usr/bin/gamescope",
         "kwin": "/usr/bin/kwin_wayland",
         "kwin_session": {"wayland": True, "supported": True, "protocols": [], "error": ""},
+        "dbus_run_session": "/usr/bin/dbus-run-session",
         "mangohud": "/usr/bin/mangohud",
         "gamemoderun": "/usr/bin/gamemoderun",
         "systemd_inhibit": "/usr/bin/systemd-inhibit",
@@ -206,14 +208,97 @@ def test_kwin_wraps_the_launch_in_a_nested_session(
     monkeypatch.delenv("DISPLAY", raising=False)
     plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
 
-    assert Path(plan.argv[0]).name == "kwin_wayland"
+    # kwin runs on a session bus of its own, with a config directory of its own.
+    assert plan.argv[0] == "/usr/bin/dbus-run-session"
+    assert plan.argv[plan.argv.index("--config-file") + 1].endswith("dbus-session.conf")
+    assert "--" in plan.argv
+    env = plan.argv.index("env")
+    assert plan.argv[env + 1].startswith("XDG_CONFIG_HOME=")
+    assert Path(plan.argv[env + 2]).name == "kwin_wayland"
     assert "--xwayland" in plan.argv
     # --exit-with-session takes exactly one program, so the whole chain moves into a shim.
     assert plan.argv[-2:] == ["--exit-with-session", "__ZED_SESSION_SCRIPT__"]
-    assert plan.session_script.startswith("#!/bin/sh\nexec ")
+    assert plan.session_script.startswith("#!/bin/sh\n")
     assert f"{umu_run} {executable}" in plan.session_script
     # A nested Wayland session finds its parent display on its own.
     assert "--x11-display" not in plan.argv
+
+
+def test_kwin_bus_neither_activates_nor_joins_the_session_services(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    config = Path(plan.argv[plan.argv.index("--config-file") + 1])
+    text = config.read_text(encoding="utf-8")
+    assert "<type>session</type>" in text
+    # Without servicedirs the bus cannot start fcitx5, a portal or dconf next to the running
+    # desktop; the nested session only needs connections.
+    assert "servicedir" not in text
+
+
+def test_kwin_launch_keeps_the_session_bus_for_the_game(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # kwin is isolated, but the game inside it still needs the session's services (GameMode).
+    bus = "unix:path=/run/user/1000/bus;unix:abstract=/tmp/dbus-abc"
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", bus)
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    assert f"export DBUS_SESSION_BUS_ADDRESS={shlex.quote(bus)}" in plan.session_script
+    assert plan.session_script.rstrip().endswith(str(executable))
+
+
+def test_kwin_launch_unsets_the_bus_when_the_session_has_none(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    # Nothing to restore means the variables are removed again, not set to an empty value.
+    assert "unset DBUS_SESSION_BUS_ADDRESS" in plan.session_script
+    assert "unset XDG_CONFIG_HOME" in plan.session_script
+
+
+def test_kwin_launch_gets_an_empty_config_home_of_its_own(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "session-config"
+    config_home.mkdir()
+    (config_home / "kwinrc").write_text("[Plugins]\nblurEnabled=false\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+
+    private = Path(plan.argv[plan.argv.index("env") + 1].split("=", 1)[1])
+    # Nothing is copied from the session: kwin writes its own defaults there and the user can
+    # tune that directory without changing the desktop's kwinrc.
+    assert private != config_home
+    assert not (private / "kwinrc").exists()
+    # The game is not part of that isolation, so it gets the session's own directory back.
+    assert f"export XDG_CONFIG_HOME={shlex.quote(str(config_home))}" in plan.session_script
+
+    # The same private directory is reused instead of leaking one directory per run.
+    again = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
+    assert Path(again.argv[again.argv.index("env") + 1].split("=", 1)[1]) == private
+
+
+def test_kwin_launch_without_dbus_run_session_says_so(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    plan = _tool_plan(
+        executable,
+        umu_run,
+        proton_dir,
+        tmp_path,
+        kwin=True,
+        available_extra={"dbus_run_session": None},
+    )
+
+    assert "dbus-run-session" not in plan.argv
+    assert any("dbus-run-session" in note for note in plan.notes)
+    # The launch still works, it just shares the session bus like it used to.
+    assert Path(plan.argv[2]).name == "kwin_wayland"
 
 
 def test_kwin_gets_the_parent_x11_display(
@@ -231,7 +316,8 @@ def test_kwin_arguments_replace_the_defaults(executable, umu_run, proton_dir, tm
     plan = _tool_plan(
         executable, umu_run, proton_dir, tmp_path, kwin=True, kwin_args="--width 2560 --height 1440"
     )
-    assert plan.argv[1:3] == ["--width", "2560"]
+    start = plan.argv.index("/usr/bin/kwin_wayland")
+    assert plan.argv[start + 1 : start + 3] == ["--width", "2560"]
     assert "--no-lockscreen" not in plan.argv
 
 
@@ -672,7 +758,7 @@ def test_kwin_runs_when_the_protocol_is_missing_but_unknown(
             "kwin_session": {"wayland": True, "supported": True, "protocols": [], "error": "denied"}
         },
     )
-    assert Path(plan.argv[0]).name == "kwin_wayland"
+    assert "/usr/bin/kwin_wayland" in plan.argv
 
 
 def test_kwin_keeps_inner_wrappers_inside_its_session(
@@ -683,7 +769,7 @@ def test_kwin_keeps_inner_wrappers_inside_its_session(
         executable, umu_run, proton_dir, tmp_path, kwin=True, mangohud=True, gamemode=True
     )
     # kwin owns the session, and the wrappers run inside it, around umu-run.
-    assert Path(plan.argv[0]).name == "kwin_wayland"
+    assert "/usr/bin/kwin_wayland" in plan.argv
     assert "mangohud" not in plan.argv
     assert "gamemoderun" not in plan.argv
     assert plan.session_script.rstrip().endswith(str(executable))
@@ -699,5 +785,6 @@ def test_kwin_nests_inside_the_sleep_inhibitor(executable, umu_run, proton_dir, 
         "--why=Zed Launcher is running a game",
         "--",
     ]
-    assert Path(plan.argv[4]).name == "kwin_wayland"
+    assert plan.argv[4] == "/usr/bin/dbus-run-session"
+    assert "/usr/bin/kwin_wayland" in plan.argv[6:]
     assert plan.argv[-1] == "__ZED_SESSION_SCRIPT__"

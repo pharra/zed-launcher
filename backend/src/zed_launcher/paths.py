@@ -74,6 +74,12 @@ def script_dir() -> Path:
     return state_dir() / "scripts"
 
 
+def kwin_session_dir() -> Path:
+    """Config directory handed to a nested KWin instead of the session's own ``~/.config``."""
+
+    return state_dir() / "kwin"
+
+
 def prune_scripts(keep: int = 200) -> list[Path]:
     """Drop launch scripts of old runs; they are only useful while debugging."""
 
