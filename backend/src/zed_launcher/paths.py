@@ -81,7 +81,12 @@ def prune_scripts(keep: int = 200) -> list[Path]:
     if not directory.is_dir():
         return []
     scripts = sorted(
-        (path for path in directory.glob("*.bat") if path.is_file()),
+        (
+            path
+            for pattern in ("*.bat", "*.sh")
+            for path in directory.glob(pattern)
+            if path.is_file()
+        ),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )

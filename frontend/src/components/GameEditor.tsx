@@ -247,6 +247,10 @@ export function GameEditor({
   onSaved,
 }: GameEditorProps) {
   const {t} = useT();
+  // A nested KWin needs both the binary and wp_single_pixel_buffer_manager_v1 from the
+  // compositor that is hosting it right now.
+  const kwinSession = dependencies?.optional.kwin?.session;
+  const kwinSessionOk = kwinSession?.supported !== false;
   const [form, setForm] = useState<GameInput>(emptyGame);
   const [browse, setBrowse] = useState<null | {mode: "file" | "directory"; field: keyof GameInput}>(null);
   const [saving, setSaving] = useState(false);
@@ -672,11 +676,18 @@ export function GameEditor({
                     />
                     <ToolToggle
                       label={t("KWin (nested)", "KWin（嵌套）")}
-                      available={Boolean(dependencies?.optional.kwin?.available)}
-                      hint={t(
-                        "kwin_wayland was not found. Install KWin or set its path in Settings.",
-                        "未找到 kwin_wayland。请安装 KWin，或在设置里指定路径。",
-                      )}
+                      available={Boolean(dependencies?.optional.kwin?.available) && kwinSessionOk}
+                      hint={
+                        dependencies?.optional.kwin?.available
+                          ? t(
+                              "The running compositor does not offer wp_single_pixel_buffer_manager_v1, which a nested KWin needs. Use a KWin/Plasma session or turn this off.",
+                              "当前运行的合成器不提供 wp_single_pixel_buffer_manager_v1（嵌套 KWin 必需）。请改用 KWin/Plasma 会话，或关闭此选项。",
+                            )
+                          : t(
+                              "kwin_wayland was not found. Install KWin or set its path in Settings.",
+                              "未找到 kwin_wayland。请安装 KWin，或在设置里指定路径。",
+                            )
+                      }
                       blocked={
                         form.gamescope
                           ? t(

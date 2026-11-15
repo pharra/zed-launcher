@@ -81,7 +81,7 @@ def test_wrappers_are_applied_in_order(
             "systemd_inhibit": "/usr/bin/systemd-inhibit",
             "gamemoderun": "/usr/bin/gamemoderun",
             "gamescope": "/usr/bin/gamescope",
-        "kwin": "/usr/bin/kwin_wayland",
+            "kwin": "/usr/bin/kwin_wayland",
             "mangohud": "/usr/bin/mangohud",
         },
         config={"gamescope_args": "-f -W 1920 -H 1080"},
@@ -170,13 +170,16 @@ def test_missing_executable_raises(tmp_path: Path) -> None:
         )
 
 
-def _tool_plan(executable, umu_run, proton_dir, tmp_path, **overrides):
+def _tool_plan(executable, umu_run, proton_dir, tmp_path, available_extra=None, **overrides):
     available = {
         "umu_run": str(umu_run),
         "gamescope": "/usr/bin/gamescope",
         "kwin": "/usr/bin/kwin_wayland",
+        "kwin_session": {"wayland": True, "supported": True, "protocols": [], "error": ""},
         "mangohud": "/usr/bin/mangohud",
         "gamemoderun": "/usr/bin/gamemoderun",
+        "systemd_inhibit": "/usr/bin/systemd-inhibit",
+        **(available_extra or {}),
     }
     return build_plan(
         make_game(executable, **overrides),
@@ -205,7 +208,10 @@ def test_kwin_wraps_the_launch_in_a_nested_session(
 
     assert Path(plan.argv[0]).name == "kwin_wayland"
     assert "--xwayland" in plan.argv
-    assert plan.argv[-3:] == ["--exit-with-session", str(umu_run), str(executable)]
+    # --exit-with-session takes exactly one program, so the whole chain moves into a shim.
+    assert plan.argv[-2:] == ["--exit-with-session", "__ZED_SESSION_SCRIPT__"]
+    assert plan.session_script.startswith("#!/bin/sh\nexec ")
+    assert f"{umu_run} {executable}" in plan.session_script
     # A nested Wayland session finds its parent display on its own.
     assert "--x11-display" not in plan.argv
 
@@ -218,7 +224,7 @@ def test_kwin_gets_the_parent_x11_display(
     plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True)
 
     assert plan.argv[plan.argv.index("--x11-display") + 1] == ":0"
-    assert plan.argv[-3:] == ["--exit-with-session", str(umu_run), str(executable)]
+    assert plan.argv[-1] == "__ZED_SESSION_SCRIPT__"
 
 
 def test_kwin_arguments_replace_the_defaults(executable, umu_run, proton_dir, tmp_path) -> None:
@@ -634,3 +640,64 @@ def test_kwin_keeps_a_platform_theme_the_user_chose(
         executable, umu_run, proton_dir, tmp_path, kwin=True, env="QT_QPA_PLATFORMTHEME=qt6ct"
     )
     assert plan.env["QT_QPA_PLATFORMTHEME"] == "qt6ct"
+
+
+def test_kwin_is_refused_when_the_session_lacks_the_protocol(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    with pytest.raises(PlanError, match="wp_single_pixel_buffer_manager_v1"):
+        _tool_plan(
+            executable,
+            umu_run,
+            proton_dir,
+            tmp_path,
+            kwin=True,
+            available_extra={
+                "kwin_session": {"wayland": True, "supported": False, "protocols": [], "error": ""}
+            },
+        )
+
+
+def test_kwin_runs_when_the_protocol_is_missing_but_unknown(
+    executable, umu_run, proton_dir, tmp_path
+) -> None:
+    # An inspection that failed must not block a launch that may well work.
+    plan = _tool_plan(
+        executable,
+        umu_run,
+        proton_dir,
+        tmp_path,
+        kwin=True,
+        available_extra={
+            "kwin_session": {"wayland": True, "supported": True, "protocols": [], "error": "denied"}
+        },
+    )
+    assert Path(plan.argv[0]).name == "kwin_wayland"
+
+
+def test_kwin_keeps_inner_wrappers_inside_its_session(
+    executable, umu_run, proton_dir, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    plan = _tool_plan(
+        executable, umu_run, proton_dir, tmp_path, kwin=True, mangohud=True, gamemode=True
+    )
+    # kwin owns the session, and the wrappers run inside it, around umu-run.
+    assert Path(plan.argv[0]).name == "kwin_wayland"
+    assert "mangohud" not in plan.argv
+    assert "gamemoderun" not in plan.argv
+    assert plan.session_script.rstrip().endswith(str(executable))
+    assert "gamemoderun /usr/bin/mangohud" in plan.session_script
+
+
+def test_kwin_nests_inside_the_sleep_inhibitor(executable, umu_run, proton_dir, tmp_path) -> None:
+    plan = _tool_plan(executable, umu_run, proton_dir, tmp_path, kwin=True, no_sleep=True)
+    # The inhibitor has to outlive the session, so it wraps kwin instead of sitting inside it.
+    assert plan.argv[:4] == [
+        "/usr/bin/systemd-inhibit",
+        "--what=sleep:idle",
+        "--why=Zed Launcher is running a game",
+        "--",
+    ]
+    assert Path(plan.argv[4]).name == "kwin_wayland"
+    assert plan.argv[-1] == "__ZED_SESSION_SCRIPT__"

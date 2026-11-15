@@ -23,6 +23,7 @@ def test_tools_shape() -> None:
         "gamemoderun",
         "gamescope",
         "kwin",
+        "kwin_session",
         "systemd_inhibit",
         "notify_send",
         "icoextract",

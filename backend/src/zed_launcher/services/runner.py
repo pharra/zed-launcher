@@ -16,7 +16,7 @@ from .. import store
 from ..config import load_config
 from ..paths import ensure_dirs, log_dir, script_dir
 from . import diagnose, notify, processes
-from .command import SCRIPT_TOKEN, LaunchPlan
+from .command import SCRIPT_TOKEN, SESSION_TOKEN, LaunchPlan
 from .gameenv import game_env
 
 # How long to keep reading the game's pipe after the process itself exited.
@@ -177,22 +177,44 @@ class RunManager:
         pressure-vessel container): a batch file starts the extras around the game.
         """
 
-        if not plan.script:
-            return list(plan.argv)
-
+        replacements: dict[str, str] = {}
         directory = script_dir()
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"{run_id}.bat"
-        try:
-            path.write_text(plan.script, encoding="utf-8", newline="")
-        except OSError as error:
-            note(f"# could not write the launch script: {error}")
-            return list(plan.argv)
 
-        note(f"# launch script: {path}")
-        if plan.order:
-            note("# order: " + " -> ".join(Path(part).name for part in plan.order))
-        return [part.replace(SCRIPT_TOKEN, str(path)) for part in plan.argv]
+        if plan.script:
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{run_id}.bat"
+            try:
+                path.write_text(plan.script, encoding="utf-8", newline="")
+            except OSError as error:
+                note(f"# could not write the launch script: {error}")
+                return list(plan.argv)
+            note(f"# launch script: {path}")
+            if plan.order:
+                note("# order: " + " -> ".join(Path(part).name for part in plan.order))
+            replacements[SCRIPT_TOKEN] = str(path)
+
+        if plan.session_script:
+            # The session wrapper embeds the batch file's path, which is only known now.
+            text = plan.session_script
+            for token, value in replacements.items():
+                text = text.replace(token, value)
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{run_id}.sh"
+            try:
+                path.write_text(text, encoding="utf-8")
+                path.chmod(0o755)
+            except OSError as error:
+                note(f"# could not write the session script: {error}")
+                return list(plan.argv)
+            note(f"# session script: {path}")
+            replacements[SESSION_TOKEN] = str(path)
+
+        if not replacements:
+            return list(plan.argv)
+        argv = list(plan.argv)
+        for token, value in replacements.items():
+            argv = [part.replace(token, value) for part in argv]
+        return argv
 
     async def _spawn_watcher(self, run_id: str, game_id: str, pid: int) -> None:
         """Keep recording the run even if the launcher window is closed."""

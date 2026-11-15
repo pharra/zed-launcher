@@ -26,6 +26,8 @@ class LaunchPlan:
     drop_env_prefixes: tuple[str, ...] = ()
     # Batch file that starts every program inside one umu-run/pressure-vessel.
     script: str = ""
+    # Shell wrapper that becomes the single program of a nested compositor session.
+    session_script: str = ""
     # Human-readable launch order, used in the log.
     order: list[str] = field(default_factory=list)
 
@@ -141,6 +143,7 @@ def legacy_launch_args(value: str) -> tuple[str, str]:
 
 
 SCRIPT_TOKEN = "__ZED_REPLACE_ME__"
+SESSION_TOKEN = "__ZED_SESSION_SCRIPT__"
 
 # pressure-vessel shows the container only the paths a game needs: the executable's own
 # directory, the prefix and Proton. A program living elsewhere (a deck tracker on another
@@ -327,9 +330,12 @@ def build_plan(
     if game.get("wow64"):
         env["PROTON_USE_WOW64"] = "1"
 
-    wrappers: list[str] = []
+    # Wrappers that belong inside the game session.
+    inner: list[str] = []
+    # Wrappers that have to stay outside of it (the sleep inhibitor must cover it all).
+    outer: list[str] = []
     if game.get("no_sleep") and available.get("systemd_inhibit"):
-        wrappers.extend(
+        outer.extend(
             [
                 str(available["systemd_inhibit"]),
                 "--what=sleep:idle",
@@ -337,7 +343,15 @@ def build_plan(
                 "--",
             ]
         )
+    kwin_argv: list[str] = []
     if game.get("kwin"):
+        session = available.get("kwin_session") or {}
+        if session and not session.get("supported", True):
+            raise PlanError(
+                "The current compositor does not offer wp_single_pixel_buffer_manager_v1, so a "
+                "nested KWin session cannot open a window. Run the desktop session under KWin, "
+                "or turn KWin off for this game."
+            )
         # Qt takes the KDE/portal platform theme from the session, and that theme plugin
         # segfaults inside kwin_wayland before it can open a window (seen with
         # QT_QPA_PLATFORMTHEME=xdgdesktopportal on a KDE-flavoured session).
@@ -345,21 +359,19 @@ def build_plan(
         # kwin logs to the systemd journal, which would leave this log empty.
         env.setdefault("QT_FORCE_STDERR_LOGGING", "1")
         if available.get("kwin"):
-            wrappers.extend(
-                kwin_prefix(
-                    str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
-                )
+            kwin_argv = kwin_prefix(
+                str(available["kwin"]), str(game.get("kwin_args") or ""), os.environ
             )
     if game.get("gamemode") and available.get("gamemoderun"):
-        wrappers.append(str(available["gamemoderun"]))
+        inner.append(str(available["gamemoderun"]))
     if game.get("gamescope") and available.get("gamescope"):
         raw = str(game.get("gamescope_args") or "").strip()
         if not raw:
             raw = str(config.get("gamescope_args") or "-f")
-        wrappers.extend([str(available["gamescope"]), *shlex.split(raw), "--"])
+        inner.extend([str(available["gamescope"]), *shlex.split(raw), "--"])
     if game.get("mangohud") and available.get("mangohud"):
-        wrappers.append(str(available["mangohud"]))
-        wrappers.extend(shlex.split(str(game.get("mangohud_args") or "")))
+        inner.append(str(available["mangohud"]))
+        inner.extend(shlex.split(str(game.get("mangohud_args") or "")))
 
     sequence = normalize_programs(game.get("extra_programs"), path)
     before, after = split_programs(sequence)
@@ -383,12 +395,12 @@ def build_plan(
         # Hand the .bat to umu-run as the executable (Faugus does the same). Wine runs a
         # batch file through the shell without allocating a console, which is why no cmd
         # window shows up; `cmd.exe /c script` would open one.
-        argv = [*wrappers, umu_run, SCRIPT_TOKEN]
+        argv = [*inner, umu_run, SCRIPT_TOKEN]
         # The container only sees the target executable's directory, so every program the
         # script starts from somewhere else has to be mounted explicitly.
         folders.extend(str(Path(part).parent) for part in order)
     else:
-        argv = [*wrappers, umu_run, path, *game_args]
+        argv = [*inner, umu_run, path, *game_args]
 
     # Directories the user added by hand, for programs and data living outside the
     # directories above; a drive that went away is skipped with a note instead of failing.
@@ -405,9 +417,18 @@ def build_plan(
 
     cwd = str(game.get("working_dir") or "") or str(Path(path).parent)
 
+    # kwin_wayland's --exit-with-session takes exactly one program, so the whole chain has to
+    # be handed over as a single executable; a tiny sh wrapper keeps the quoting intact.
+    session_script = ""
+    if kwin_argv:
+        session_script = "#!/bin/sh\nexec " + " ".join(shlex.quote(part) for part in argv) + "\n"
+        argv = [*kwin_argv, SESSION_TOKEN]
+    argv = [*outer, *argv]
+
     return LaunchPlan(
         argv=argv,
         script=script,
+        session_script=session_script,
         order=order,
         env=env,
         cwd=cwd,

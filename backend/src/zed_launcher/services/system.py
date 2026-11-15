@@ -8,7 +8,7 @@ from typing import Any
 
 from ..config import expand, load_config
 from ..paths import config_dir, data_dir, log_dir, state_dir
-from . import icons, proton
+from . import icons, proton, wayland
 
 
 def which(name: str) -> str | None:
@@ -78,6 +78,9 @@ def tools(config: dict[str, Any] | None = None) -> dict[str, str | None]:
         "gamemoderun": resolve_tool("gamemoderun", config),
         "gamescope": resolve_tool("gamescope", config),
         "kwin": resolve_tool("kwin", config),
+        # The binary is not enough: a nested KWin also needs a protocol from the host
+        # compositor, so every caller of build_plan gets the session verdict too.
+        "kwin_session": wayland.probe(),
         "systemd_inhibit": resolve_tool("systemd_inhibit", config),
         "notify_send": resolve_tool("notify_send", config),
         "icoextract": "available" if icons.available() else None,
@@ -152,6 +155,8 @@ def dependency_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
         }
         for key, label in OPTIONAL_TOOLS.items()
     }
+    # A nested KWin needs wp_single_pixel_buffer_manager_v1 from the host compositor.
+    optional["kwin"]["session"] = available.get("kwin_session") or {}
     missing = [key for key, entry in required.items() if not entry["available"]]
     return {
         "required": required,

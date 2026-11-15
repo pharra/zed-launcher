@@ -16,7 +16,7 @@ from . import __version__, store
 from .config import load_config
 from .paths import ensure_dirs, log_dir, prune_proton_logs, prune_scripts, script_dir
 from .services import prefixes, processes, proton, system
-from .services.command import SCRIPT_TOKEN, PlanError, build_plan
+from .services.command import SCRIPT_TOKEN, SESSION_TOKEN, PlanError, build_plan
 from .services.gameenv import game_env
 
 # How long to keep draining the game's pipe after the process itself exited.
@@ -90,6 +90,17 @@ def run_headless(game_id: str, logs: bool = True) -> int:
         script_path.write_text(plan.script, encoding="utf-8", newline="")
         argv = [part.replace(SCRIPT_TOKEN, str(script_path)) for part in argv]
         print(f"# launch script: {script_path}", flush=True)
+    if plan.session_script:
+        scripts = script_dir()
+        scripts.mkdir(parents=True, exist_ok=True)
+        session_path = scripts / f"{record['id']}.sh"
+        text = plan.session_script
+        if plan.script:
+            text = text.replace(SCRIPT_TOKEN, str(script_path))
+        session_path.write_text(text, encoding="utf-8")
+        session_path.chmod(0o755)
+        argv = [part.replace(SESSION_TOKEN, str(session_path)) for part in argv]
+        print(f"# session script: {session_path}", flush=True)
 
     if plan.pre_launch:
         subprocess.run(  # noqa: S602 - user supplied hook

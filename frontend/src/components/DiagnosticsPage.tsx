@@ -76,6 +76,16 @@ export function DiagnosticsPage({info, onRefresh}: DiagnosticsPageProps) {
               <StatusRow label="GameMode" value={info.tools.gamemoderun} />
               <StatusRow label="Gamescope" value={info.tools.gamescope} />
               <StatusRow label="kwin_wayland" value={info.tools.kwin} />
+              <StatusRow
+                label="wp_single_pixel_buffer_manager_v1"
+                value={
+                  info.tools.kwin_session?.wayland === false
+                    ? t("X11 session — not needed", "X11 会话 — 不需要")
+                    : info.tools.kwin_session?.supported
+                      ? t("available — nested KWin can start", "可用 — 嵌套 KWin 可以启动")
+                      : t("missing — nested KWin cannot start", "缺失 — 嵌套 KWin 无法启动")
+                }
+              />
               <StatusRow label="systemd-inhibit" value={info.tools.systemd_inhibit} />
               <StatusRow label="notify-send" value={info.tools.notify_send} />
               <StatusRow label="icoextract" value={info.tools.icoextract} />

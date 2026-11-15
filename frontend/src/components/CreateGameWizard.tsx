@@ -688,9 +688,15 @@ export function CreateGameWizard({
                         ["wow64", t("WOW64", "WOW64"), "PROTON_USE_WOW64", null],
                       ] as const
                     ).map(([key, label, description, dependency]) => {
-                      const available =
+                      const installed =
                         dependency === null ||
                         Boolean(dependencies?.optional[dependency]?.available);
+                      // A nested KWin also needs wp_single_pixel_buffer_manager_v1 from the
+                      // compositor that would host it.
+                      const supported =
+                        key !== "kwin" ||
+                        dependencies?.optional.kwin?.session?.supported !== false;
+                      const available = installed && supported;
                       // Gamescope and KWin both compose the session, so only one can be on.
                       const rival = key === "kwin" ? "gamescope" : key === "gamescope" ? "kwin" : null;
                       const blocked = rival !== null && toggles[rival];
@@ -699,9 +705,14 @@ export function CreateGameWizard({
                             "Mutually exclusive with the other nested compositor",
                             "与另一个嵌套合成器互斥",
                           )
-                        : available
-                          ? description
-                          : t(`${label} is not installed`, `${label} 未安装`);
+                        : !installed
+                          ? t(`${label} is not installed`, `${label} 未安装`)
+                          : !supported
+                            ? t(
+                                "Cannot start a nested KWin here: the running compositor lacks wp_single_pixel_buffer_manager_v1",
+                                "此处无法启动嵌套 KWin：当前运行的合成器缺少 wp_single_pixel_buffer_manager_v1",
+                              )
+                            : description;
                       return (
                         <div
                           key={key}

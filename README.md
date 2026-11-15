@@ -36,6 +36,23 @@ Python/FastAPI backend and shown in a GTK4 + WebKitGTK window.
   KWin honours `_NET_WM_STATE_ABOVE`. KWin is started as
   `kwin_wayland … --exit-with-session <rest of the chain>`, nested in the current session, adding
   `--x11-display $DISPLAY` only when there is no Wayland display to nest into.
+
+  Nesting a KWin needs `wp_single_pixel_buffer_manager_v1` from the compositor that hosts it, so the
+  launcher reads the Wayland registry (a ~100-line client in `services/wayland.py`, no bindings, 30 s
+  cache) and disables the switch — with the reason — when the protocol is missing; the launch itself
+  refuses the combination too. On an X11-only session nothing is checked, because the nesting goes
+  through `--x11-display`. The result is also listed in Diagnostics.
+
+  `--exit-with-session` takes exactly **one** program, so the rest of the chain (MangoHud, GameMode,
+  umu-run and its batch file) cannot simply follow it on the command line — kwin would treat the
+  extra arguments as separate applications. The launcher therefore writes a second script next to
+  the batch file, `<run id>.sh` (`#!/bin/sh` + `exec …` with everything quoted), and hands that to
+  kwin; the sleep inhibitor stays outside the session so it keeps running with it.
+
+  Two Qt settings come with a KWin launch: `QT_QPA_PLATFORMTHEME=generic`, because the session's
+  `xdgdesktopportal`/KDE theme plugin segfaults inside `kwin_wayland` before it opens a window, and
+  `QT_FORCE_STDERR_LOGGING=1`, because kwin otherwise logs to the journal and the run log stays
+  empty.
 - **Environment variables and game arguments are separate** — the Launch tab has a
   multi-line `KEY=VALUE` environment editor and a plain game-argument list. Old games that
   stored env assignments inside their arguments are migrated automatically.
@@ -394,7 +411,7 @@ Launch flow:
 | `$XDG_DATA_HOME/zed-launcher/backups/` | default backup folder |
 | `$XDG_DATA_HOME/zed-launcher/protons/` | Proton builds downloaded in-app |
 | `$XDG_STATE_HOME/zed-launcher/logs/` | per-run logs (plus Proton's `steam-*.log` when verbose logging is on) |
-| `$XDG_STATE_HOME/zed-launcher/scripts/` | generated `.bat` of the last runs (launch order, deleted after 200) |
+| `$XDG_STATE_HOME/zed-launcher/scripts/` | generated `.bat` (launch order) and `.sh` (nested KWin session) of the last runs, deleted after 200 |
 | `~/Games/Zed` | default prefix folder |
 
 ## Roadmap

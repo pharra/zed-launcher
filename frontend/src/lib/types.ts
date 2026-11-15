@@ -85,6 +85,7 @@ export interface Tools {
   gamemoderun: string | null;
   gamescope: string | null;
   kwin: string | null;
+  kwin_session: KwinSession;
   systemd_inhibit: string | null;
   notify_send: string | null;
   icoextract: string | null;
@@ -132,9 +133,18 @@ export interface RequiredDependency extends Dependency {
   count?: number;
 }
 
+export interface KwinSession {
+  wayland: boolean;
+  supported: boolean;
+  protocols: string[];
+  error: string;
+}
+
 export interface OptionalDependency extends Dependency {
   label: string;
   configured: string;
+  /** Only set for KWin: whether the running compositor can host a nested session. */
+  session?: KwinSession;
 }
 
 export interface Dependencies {
